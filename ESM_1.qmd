@@ -1,5 +1,5 @@
 ---
-title: "Supplement for Social overtures in Corydoradinae catfish mitigate the effects of acute stress"
+title: "Online Resource 1: Statistical Supplement"
 execute:
   echo: false
   warning: false
@@ -13,12 +13,29 @@ format:
     keep-tex: false
     geometry: margin=1in
     fontsize: 11pt
+    fig-pos: "H"
 header-includes:
   - \usepackage{booktabs}
   - \usepackage{longtable}
   - \usepackage{array}
   - \usepackage{multirow}
   - \usepackage{float}
+  - \usepackage{lineno}
+  - \linenumbers
+---
+
+**Article title:** Social overtures in Corydoradinae catfish mitigate the effects of acute stress
+
+**Journal:** Behavioral Ecology and Sociobiology
+
+**Authors:** Ethan Lac, Munir Siddiqui, Sullivan SS Haine, Nicolas Todorita, E. Duke Chase, and Riva J Riley
+
+**Corresponding author:** Dr. Riva J Riley, University of Denver, rjriley@post.harvard.edu
+
+---
+
+This document is Online Resource 1 accompanying the above article. It contains full details of the statistical model specification and selection process, descriptive statistics, discriminant validity analyses, and complete model results. Reproducible R code is provided in Online Resource 2.
+
 ---
 
 ```{r}
@@ -29,6 +46,7 @@ header-includes:
 packages <- c(
   'broom.mixed',
   'cAIC4',
+  'DHARMa',         # Mixed model checks
   'emmeans',        # Post-hoc test for respiration rate change by period
   'ggeffects',      # For Partial Effects Plots
   'glmmTMB',        # For negative binomial models
@@ -119,43 +137,9 @@ fmt_p <- function(p) {
 ```
 
 
-<!-- # Respiration Visualization -->
-<!-- ```{r} -->
-<!-- #| label: prep-resp-fig -->
-<!-- #| include: false -->
-
-<!-- # Assemble long data and flag missing rows -->
-<!-- df_resp <- bind_rows( -->
-<!--   df |> transmute(group_id, fish_id, sex, period = "Interval 1", resp = resp_first), -->
-<!--   df |> transmute(group_id, fish_id, sex, period = "Interval 2", resp = resp_2), -->
-<!--   df |> transmute(group_id, fish_id, sex, period = "Interval 3", resp = resp_3), -->
-<!--   df |> transmute(group_id, fish_id, sex, period = "Interval 4", resp = resp_second) -->
-<!-- ) |>  -->
-<!--   mutate(period = factor(period, levels = paste("Interval", 1:4)), -->
-<!--          missing_orig = is.na(resp)) -->
-
-<!-- # Multiple imputation (20 draws) -->
-<!-- set.seed(2679) -->
-<!-- imp <- mice(df_resp, m = 20, method = "rf", printFlag = FALSE) -->
-
-<!-- # Build plot data from imputed values -->
-<!-- long_imp <- map_dfr(seq_len(imp$m), ~ complete(imp, .x) |> -->
-<!--                       mutate(draw = .x)) -->
-
-<!-- plotdat <- long_imp |>  -->
-<!--   select(-missing_orig) |> -->
-<!--   left_join(df_resp |>  -->
-<!--               select(group_id, fish_id, period, missing_orig), -->
-<!--             by = c("group_id", "fish_id", "period")) |>  -->
-<!--   group_by(group_id, fish_id, period, missing_orig) |>  -->
-<!--   summarise(resp = mean(resp), .groups = "drop") |>  -->
-<!--   mutate(point_type = if_else(missing_orig, "Imputed", "Observed")) -->
-<!-- ``` -->
-
-
 # Dataset Preparation
 
-Data were imported an excel file, and variables were renamed for ease of use while coding. The variables `group_ID` (called pair ID in the paper), `fish_ID`, and `sex` were converted to factors. The activity-normalized nuding (ANN) variable which is used instead of nudges for all inferential models was calculated for each fish during each nudging period by dividing the number of nudges they initiated, divided by the amount of minutes they were active; fish that were not active during a given nudging period were assigned 0s for ANN. Two data structures were employed for the analysis: the first is the original, individual-level, wide data structure with one observation per fish ($n = 38$), while the second was a wide data structure pooling data from both nudging periods, with one observation per fish for each nudging period ($n = 76$).
+Data were imported from an excel file, and variables were renamed for ease of use while coding. The variables `group_ID` (called pair ID in the paper), `fish_ID`, and `sex` were converted to factors. The activity-normalized nudging (ANN) variable which is used instead of nudges for all inferential models was calculated for each fish during each nudging period by dividing the number of nudges they initiated by the number of minutes they were active; fish that were not active during a given nudging period were assigned 0s for ANN. Two data structures were employed for the analysis: the first is the original, individual-level, wide data structure with one observation per fish ($n = 38$), while the second was a long data structure pooling data from both nudging periods, with one observation per fish for each nudging period ($n = 76$).
 
 ```{r}
 #| label: build-data-variations
@@ -201,11 +185,17 @@ df_complete_resp <- df[!is.na(df$resp_second), ]
 # Model Specification and Selection
 
 Before fitting any models, we examined the distribution of each response variable to choose an appropriate statistical family. Histograms of all variables are shown below, followed by overdispersion checks for non-negative integer-valued outcome variables.
+
+
+As can be seen in @fig-focal-vars, activity, nudges, and wall surfing show right-skewed distributions with mass at low values, consistent with overdispersed non-negative integer-valued outcomes as shown in @tbl-overdisp-general. Foraging time and freeze time show similar right-skewed distributions. Activity in panel for the second nudging period is visibly right-censored at 300 seconds, reflecting the fixed monitoring window, however this does not affect the choice of distributional family since the negative binomial is specified for the conditional mean rather than the full range of the outcome. ANN shows a right-skewed profile with a pronounced mass at zero, reflecting fish that were inactive during a given period. Respiration rate is approximately symmetrically distributed across all three panels, consistent with the Gaussian family used in the linear mixed-effects models.
+
+\clearpage
 ```{r}
 #| label: fig-focal-vars
 #| fig-cap: "Histograms of all variables used in analysis."
 #| fig-width: 8
-#| fig-height: 11
+#| fig-height: 8
+#| fig-pos: "p"
 #| out-width: "100%"
 #| include: true
 
@@ -243,7 +233,6 @@ hist(df$freeze_time, main = "Freeze Time", xlab = "")
 
 par(mfrow = c(1, 1), mar = c(5, 4, 4, 2))  # reset
 ```
-As can be seen in @fig-focal-vars, activity, nudges, and wall surfing show right-skewed distributions with mass at low values, consistent with overdispersed non-negative integer-valued outcomes as seen in @tbl-overdisp-general. Foraging time and freeze time show similar right-skewed distributions. Activity in nudging period 2 is visibly right-censored at 300 seconds, reflecting the fixed monitoring window, however this does not affect the choice of distributional family since the negative binomial is specified for the conditional mean rather than the full range of the outcome. Ann shows a right-skewed profile with a pronounced mass at zero, reflecting fish that were inactive during a given period. Respiration rate is approximately symmetrically distributed across all three panels, consistent with the Gaussian family used in the linear mixed-effects models.
 
 ## Dispersion Checks
 
@@ -287,7 +276,7 @@ bind_rows(base_summ, long_summ) |>
     booktabs = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position", "scale_down"),
+    latex_options = c("striped", "hold_position"),
     full_width = FALSE
   ) |>
   collapse_rows(columns = 1, valign = "top", latex_hline = "major") |>
@@ -298,7 +287,7 @@ bind_rows(base_summ, long_summ) |>
   )
 ```
 
-All non-negative integer-valued outcomes (activity, nudges, wall surfing, foraging time, and freeze time) showed substantial overdispersion, justifying the use of negative binomial rather than Poisson distributions. Although activity, wall surfing, foraging time, and freeze time represent durations in seconds rather than event counts, they take non-negative integer values and exhibit the overdispersion characteristic that motivates negative binomial modeling; nudges are event counts in the traditional sense.
+All non-negative integer-valued outcomes (activity, nudges, wall surfing, foraging time, and freeze time) showed substantial overdispersion, justifying the use of negative binomial rather than Poisson distributions. Although activity, wall surfing, foraging time, and freeze time represent durations in seconds rather than event counts, they take non-negative integer values and exhibit the overdispersion characteristics that motivate negative binomial modeling; nudges are event counts in the traditional sense.
 
 Nudging rate while active (ANN) is a continuous rate rather than a count, but has a natural point mass at zero for fish that were completely inactive. Rather than fitting a more complex hurdle model, we used a Tweedie distribution with a log link, which handles this mixture of zeros and positive continuous values in a single model.
 
@@ -324,7 +313,7 @@ map_dfr(ann_models, function(m) {
 }, .id = "Model") |>
   kable(col.names = c("Model", "Dispersion Ratio", "p-value"),
         booktabs = TRUE) |>
-  kable_styling(latex_options = c("striped", "hold_position", "scale_down"),
+  kable_styling(latex_options = c("striped", "hold_position"),
                 full_width = FALSE) |>
   footnote(number = "Dispersion ratio near 1 indicates adequate fit",
            escape = FALSE,
@@ -333,7 +322,7 @@ map_dfr(ann_models, function(m) {
 
 ## Zero-inflation Diagnostics
 
-Zero-inflation was assessed for activity, nudges, and wall surfing by fitting intercept-only negative binomial models and comparing observed versus predicted zero counts. Respiration rate, foraging time and freeze time were excluded as no zero values were observed for these variables.
+Zero-inflation was assessed for activity, nudges, and wall surfing by fitting intercept-only negative binomial models and comparing observed versus predicted zero counts. Only the versions of the variables from the second nudging period and the pooled data were used, as none of the first nudging period variables were used in any model as outcome variables. Respiration rate, foraging time, and freeze time were excluded as no zero values were observed for these variables.
 
 ```{r}
 #| label: tbl-zi
@@ -365,8 +354,8 @@ zi_results <- map_dfr(zi_models, function(m) {
       "surf_2" ~ "Wall Surfing","surf" ~ "Wall Surfing"
     ),
     dataset = case_match(model,
-      "act_2" ~ "Indiv: Period 2", "nudges_2" ~ "Indiv. Period 2", 
-      "surf_2" ~ "Indiv.: Period 2", "act" ~ "Pooled", 
+      "act_2" ~ "Indiv: Period 2", "nudges_2" ~ "Indiv: Period 2", 
+      "surf_2" ~ "Indiv: Period 2", "act" ~ "Pooled", 
       "nudges" ~ "Pooled", "surf"   ~ "Pooled"
     ),
     significant = if_else(p_numeric < 0.05, "Yes", "No"),
@@ -393,11 +382,11 @@ zi_results |>
   collapse_rows(columns = 1, valign = "top", latex_hline = "major")
 ```
 
-Activity showed significant zero-inflation in Period 2 and pooled datasets (p = 0.008 and p < 0.001). Nudges did not display significant zero inflation. Wall surfing showed significant zero-inflation in Period 2 only. Models were specified accordingly, with `ziformula = ~1` included where significant zero-inflation was detected.
+Activity showed significant zero-inflation in Period 2 and pooled datasets (p = 0.008 and p < 0.001). Nudges did not display significant zero inflation (both p ≥ 0.14). Wall surfing showed significant zero-inflation in Period 2 only (p = 0.008), but none in the pooled data (p = 0.144). Models were specified accordingly, with `ziformula = ~1` included where significant zero-inflation was detected.
 
 
 ## Random effect structure selection
-Random effect structure for all pooled dataset models was evaluated by comparing models of the form `outcome ~ period + (1 | fish_id)` vs. `outcome ~ period + (1 | fish_id) + (1 | group_id)` using AICc. Fish ID was included as a baseline random intercept in all pooled models to account for the repeated measures structure. For individual-level dataset models, each fish appears only once, making fish ID a saturated random effect that cannot estimate variance, and Group ID is the only appropriate random effect for these models, so no selection was necessary.
+Random effect structure for all pooled dataset models was evaluated by comparing models of the form `outcome ~ period + (1 | fish_id)` vs. `outcome ~ period + (1 | fish_id) + (1 | group_id)` using AICc. Fish ID was included as a baseline random intercept in all pooled models to account for the repeated measures structure. For individual-level dataset models, each fish appears only once, making fish ID a saturated random effect that cannot estimate variance, and pair ID is the only appropriate random effect for these models, so no selection was necessary.
 
 ```{r}
 #| label: tbl-re-selection
@@ -453,12 +442,13 @@ aicc_tbl <- data.frame(
 aicc_tbl |>
   kable(
     col.names = c("Behaviour", "AICc (fish only)", "AICc (fish + pair)",
-              "\u0394 AICc", "Selected Structure", "Singular Fit?"),
+              "\u0394 AICc", "Selected Structure", "Singular?"),
     caption = "Random effect structure selection via AICc (pooled dataset models)",
-    booktabs = TRUE
+    booktabs = TRUE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position", "scale_down"),
+    latex_options = c("striped", "repeat_header", "scale_down"),
     full_width = FALSE
   ) |>
   footnote(
@@ -703,7 +693,7 @@ period_tbl |>
   )
 ```
 
-Mixed-effects regression models confirmed significant period effects for all behavioral variables, with activity, ANN, nudges, and wall surfing all substantially higher in Period 2 (all IRR > 2, all p < 0.001). Respiration rate declined significantly between periods by approximately 19.5 opercular beats / 10 seconds (p < 0.001).
+Mixed-effects regression models confirmed significant period effects for all behavioral variables, with activity, ANN, nudges, and wall surfing all substantially higher in Period 2 (all IRR > 2, all p < 0.001). Respiration rate declined significantly between periods by approximately 19.5 opercular beats/10 seconds (p < 0.001).
 
 
 ```{r}
@@ -784,7 +774,7 @@ comparison_tbl |>
     booktabs = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position", "scale_down"),
+    latex_options = c("striped", "hold_position"),
     full_width = FALSE
   ) |>
   footnote(
@@ -800,9 +790,9 @@ comparison_tbl |>
 
 
 
-Sex-specific comparisons revealed that both females and males showed significant increases in activity, nudges, and wall surfing between periods, while males showed no significant change in ANN (p = 0.508), consistent with the sex × period interaction observed in the intrinsic models. No significant between-sex differences were detected in Period 1 for any variable. In Period 2, ANN and nudges differed significantly between sexes (p = 0.007 and p = 0.013 respectively), driven by the divergent ANN trajectories across periods.
+Sex-specific comparisons revealed that both females and males showed significant increases in activity, nudges, and wall surfing between periods, and significant decreases in respiration rate. While females showed a significant change in ANN between periods, males showed no significant change (p = 0.508), consistent with the sex × period interaction present in the inherent characteristics models later in this supplement. No significant between-sex differences were detected in Period 1 for any variable. In Period 2, ANN and nudges differed significantly between sexes (p = 0.007 and p = 0.013 respectively), driven by the divergent ANN trajectories across periods.
 
-Body length was compared between sexes using a Welch two-sample t-test, as females and males were independent groups. Length was included as a covariate in intrinsic models given its potential influence on behavioral measures.
+Body length was compared between sexes using a Welch two-sample t-test, as females and males were independent groups. Length was included as a covariate in inherent characteristics models given its potential influence on behavioral measures.
 
 ```{r}
 #| label: tbl-length-comparison
@@ -825,10 +815,11 @@ data.frame(
     col.names = c("Female (cm)", "Male (cm)", "Diff (cm)",
                   "t", "df", "p-value", "95% CI"),
     booktabs  = TRUE,
-    row.names = FALSE
+    row.names = FALSE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position", "scale_down"),
+    latex_options = c("striped", "repeat_header"),
     full_width    = FALSE
   ) |>
   footnote(
@@ -840,7 +831,7 @@ data.frame(
 
 # Discriminant Validity
 
-To assess whether ANN and activity were measuring distinct behavioral constructs, and whether wall surfing and activity were measuring distinct constructs, we conducted exploratory discriminant validity analyses for each pair. For each pair we examined: Pearson correlations between the two variables within each nudging period, variance inflation factors (VIF) from a linear model predicting foraging time from both variables simultaneously, and two-factor varimax-rotated exploratory factor analyses of the three behavioral variables (activity, the candidate variable, and nudges) within each period. VIF values below 5 indicate low collinearity; values between 5 and 10 indicate moderate collinearity.
+To assess whether ANN and activity were measuring distinct behavioral constructs, and whether wall surfing and activity were measuring distinct constructs, we conducted exploratory discriminant validity analyses for each pair. For each pair, we examined Pearson correlations between the two variables within each nudging period, variance inflation factors (VIF) from a linear model predicting foraging time from both variables simultaneously, and two-factor varimax-rotated exploratory factor analyses of the three behavioral variables (activity, the candidate variable, and nudges) within each period. VIF values below 5 indicate low collinearity, values between 5 and 10 indicate moderate collinearity, and values above 10 indicate severe collinearity.
 
 ## ANN and Activity
 ```{r}
@@ -878,10 +869,11 @@ data.frame(
 ) |>
   kable(
     col.names = c("Period", "r", "p-value", "VIF (Activity)", "VIF (ANN)"),
-    booktabs = TRUE
+    booktabs = TRUE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position"),
+    latex_options = c("striped", "repeat_header"),
     full_width = FALSE
   ) |>
   footnote(
@@ -905,18 +897,14 @@ data.frame(
 ) |>
   kable(
     col.names = c("Variable", "Period", "Factor 1", "Factor 2"),
-    booktabs = TRUE
+    booktabs = TRUE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position"),
+    latex_options = c("striped", "repeat_header"),
     full_width = FALSE
   ) |>
-  collapse_rows(columns = 2, valign = "top", latex_hline = "major") |>
-  footnote(
-    number = "Loadings below 0.3 are suppressed by default in psych::fa output and shown as blank.",
-    escape = FALSE,
-    threeparttable = TRUE
-  )
+  collapse_rows(columns = 2, valign = "top", latex_hline = "major")
 ```
 
 ANN and activity were essentially uncorrelated in both nudging periods (@tbl-dv-ann-cor-vif), with VIF values near 1.0 indicating negligible collinearity. Factor analysis confirmed that ANN and activity loaded onto distinct factors in both periods (@tbl-dv-ann-fa), supporting their treatment as independent behavioral measures in subsequent analyses.
@@ -957,10 +945,11 @@ data.frame(
 ) |>
   kable(
     col.names = c("Period", "r", "p-value", "VIF (Activity)", "VIF (Wall Surfing)"),
-    booktabs = TRUE
+    booktabs = TRUE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position"),
+    latex_options = c("striped", "repeat_header"),
     full_width = FALSE
   ) |>
   footnote(
@@ -984,1158 +973,1140 @@ data.frame(
 ) |>
   kable(
     col.names = c("Variable", "Period", "Factor 1", "Factor 2"),
-    booktabs = TRUE
+    booktabs = TRUE,
+    longtable = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "hold_position"),
+    latex_options = c("striped", "repeat_header"),
     full_width = FALSE
   ) |>
-  collapse_rows(columns = 2, valign = "top", latex_hline = "major") |>
-  footnote(
-    number = "Loadings below 0.3 are suppressed by default in psych::fa output and shown as blank.",
-    escape = FALSE,
-    threeparttable = TRUE
-  )
+  collapse_rows(columns = 2, valign = "top", latex_hline = "major")
 ```
 
 Wall surfing and activity were moderately correlated in Period 1 but strongly correlated in Period 2 (@tbl-dv-ws-cor-vif), with VIF values remaining below conventional thresholds in both periods. The substantial increase in correlation between periods suggests the two variables are not simply redundant measures of the same construct, as a stable redundant relationship would be expected to show consistent correlation across periods. Factor analysis indicated partial overlap in both periods, with the degree of overlap increasing in Period 2 (@tbl-dv-ws-fa). Models including both variables simultaneously in Period 2 should therefore be interpreted with appropriate caution, though collinearity was not severe enough to preclude their joint inclusion.
 
 
 
-<!-- # Models -->
-<!-- For all of the following, p-values for interaction terms and covariates are from likelihood ratio tests; p-values for main effects retained due to model hierarchy are from z-tests (glmmTMB models) or t-tests (lmer models). Adjusted p-values computed using the Benjamini-Hochberg method. -->
-
-<!-- ```{r chunk-19} -->
-<!-- # Create functions to generate tables of model summaries -->
-
-<!-- get_lrt <- function(model) { -->
-<!--   tryCatch({ -->
-<!--     d <- dropterm(model, test = "Chisq") -->
-<!--     lrt_df <- data.frame( -->
-<!--       term_short = rownames(d), -->
-<!--       LRT = round(d[, "LRT"], 3), -->
-<!--       p_lrt = d[, "Pr(Chi)"], -->
-<!--       row.names = NULL -->
-<!--     ) |> -->
-<!--       filter(term_short != "<none>", !is.na(LRT)) -->
-
-<!--     tidy_terms <- tidy(model, effects = "fixed") |> -->
-<!--       select(term) |> -->
-<!--       mutate(term_short = term) -->
-
-<!--     lrt_df$term <- sapply(lrt_df$term_short, function(short) { -->
-<!--       parts <- strsplit(short, ":")[[1]] -->
-<!--       matches <- tidy_terms$term[sapply(tidy_terms$term, function(t) { -->
-<!--         all(sapply(parts, function(p) grepl(p, t, fixed = TRUE))) -->
-<!--       })] -->
-<!--       if (length(matches) == 1) matches else NA_character_ -->
-<!--     }) -->
-
-<!--     lrt_df |> -->
-<!--       select(term, LRT, p_lrt) |> -->
-<!--       filter(!is.na(term)) -->
-<!--   }, error = function(e) data.frame(term = character(0), LRT = numeric(0), p_lrt = numeric(0))) -->
-<!-- } -->
-
-<!-- fmt_p_lrt <- function(p, lrt) { -->
-<!--   lrt_fmt <- if_else(is.na(lrt), NA_character_, as.character(round(lrt, 3))) -->
-<!--   case_when( -->
-<!--     is.na(p) ~ "—", -->
-<!--     !is.na(lrt_fmt) ~ paste0(p, " (", lrt_fmt, ")"), -->
-<!--     TRUE ~ p -->
-<!--   ) -->
-<!-- } -->
-
-<!-- format_glmmtmb <- function(model, title = "", comments = NULL, coef_rename = NULL) { -->
-
-<!--   lrt <- get_lrt(model) -->
-
-<!--   est <- tidy(model, effects = "fixed") |> -->
-<!--     filter(component == "cond") |> -->
-<!--     left_join(lrt, by = "term") |> -->
-<!--     mutate( -->
-<!--       IRR = round(exp(estimate), 3), -->
-<!--       IRR = if_else(term == "(Intercept)", NA_real_, IRR), -->
-<!--       cell = paste0(round(estimate, 3), " (", round(std.error, 3), ")"), -->
-<!--       p.value = fmt_p_lrt( -->
-<!--         if_else(!is.na(p_lrt), fmt_p(p_lrt), fmt_p(p.value)), LRT -->
-<!--       ), -->
-<!--       term = if (!is.null(coef_rename)) { -->
-<!--                   case_match(term, !!!coef_rename, .default = term) -->
-<!--                 } else term -->
-<!--     ) |> -->
-<!--     select(term, cell, IRR, p.value) -->
-
-<!--   disp <- round(summary(model)$sigma, 3) -->
-
-<!--   re <- tidy(model, effects = "ran_pars") |> -->
-<!--     filter(component == "cond") |> -->
-<!--     mutate( -->
-<!--       term = paste0("SD (", group, ")"), -->
-<!--       cell = as.character(round(estimate, 3)), -->
-<!--       IRR = NA_real_, -->
-<!--       p.value = NA_character_ -->
-<!--     ) |> -->
-<!--     select(term, cell, IRR, p.value) |> -->
-<!--     mutate(IRR = as.character(IRR)) -->
-
-<!--   tbl <- bind_rows( -->
-<!--     est |> mutate(IRR = as.character(IRR)), -->
-<!--     re -->
-<!--   ) |> -->
-<!--     mutate( -->
-<!--       IRR = if_else(is.na(IRR) | IRR == "NA", "—", IRR), -->
-<!--       p.value = if_else(is.na(p.value), "—", p.value) -->
-<!--     ) -->
-
-<!--   notes <- c( -->
-<!--     paste0("Dispersion: ", disp), -->
-<!--     "IRR = incidence rate ratio. SD = random effect standard deviation. The LRT p-value and statistic are reported where applicable." -->
-<!--   ) -->
-<!--   if (!is.null(comments)) notes <- c(notes, comments) -->
-
-<!--   tbl |> -->
-<!--     kable( -->
-<!--       col.names = c("Term", "Estimate (SE)", "IRR", "p-value (LRT)"), -->
-<!--       caption = title, -->
-<!--       booktabs = TRUE -->
-<!--     ) |> -->
-<!--     kable_styling( -->
-<!--       latex_options = c("striped", "hold_position", "scale_down"), -->
-<!--       full_width = FALSE -->
-<!--     ) |> -->
-<!--     footnote( -->
-<!--       number = notes, -->
-<!--       escape = FALSE -->
-<!--     ) -->
-<!-- } -->
-
-<!-- format_lmer <- function(model, title = "", comments = NULL, coef_rename = NULL) { -->
-
-<!--   lrt <- get_lrt(model) -->
-
-<!--   est <- tidy(model, effects = "fixed") |> -->
-<!--     left_join(lrt, by = "term") |> -->
-<!--     mutate( -->
-<!--       cell = paste0(round(estimate, 3), " (", round(std.error, 3), ")"), -->
-<!--       p.value = fmt_p_lrt( -->
-<!--         if_else(!is.na(p_lrt), fmt_p(p_lrt), fmt_p(p.value)), LRT -->
-<!--       ), -->
-<!--       term = if (!is.null(coef_rename)) { -->
-<!--                   case_match(term, !!!coef_rename, .default = term) -->
-<!--                 } else term -->
-<!--     ) |> -->
-<!--     select(term, cell, p.value) -->
-
-<!--   re <- tidy(model, effects = "ran_pars") |> -->
-<!--     mutate( -->
-<!--       term = paste0("SD (", group, ")"), -->
-<!--       cell = as.character(round(estimate, 3)), -->
-<!--       p.value = NA_character_ -->
-<!--     ) |> -->
-<!--     select(term, cell, p.value) -->
-
-<!--   sigma_val <- round(sigma(model), 3) -->
-
-<!--   notes <- c( -->
-<!--     paste0("Residual SD: ", sigma_val), -->
-<!--     "SD = random effect standard deviation. The LRT p-value and statistic are reported where applicable." -->
-<!--   ) -->
-<!--   if (!is.null(comments)) notes <- c(notes, comments) -->
-
-<!--   bind_rows(est, re) |> -->
-<!--     mutate( -->
-<!--       p.value = if_else(is.na(p.value), "—", p.value) -->
-<!--     ) |> -->
-<!--     kable( -->
-<!--       col.names = c("Term", "Estimate (SE)", "p-value (LRT)"), -->
-<!--       caption = title, -->
-<!--       booktabs = TRUE -->
-<!--     ) |> -->
-<!--     kable_styling( -->
-<!--       latex_options = c("striped", "hold_position", "scale_down"), -->
-<!--       full_width = FALSE -->
-<!--     ) |> -->
-<!--     footnote( -->
-<!--       number = notes, -->
-<!--       escape = FALSE -->
-<!--     ) -->
-<!-- } -->
-<!-- ``` -->
-
-
-<!-- ## Intrinsic Models -->
-<!-- ```{r chunk-20} -->
-<!-- # Store original lengths for backtransforming, and center `length` around 0 for better interpretation -->
-<!-- length_means_original <- tapply(df_long$length, df_long$sex, mean) -->
-<!-- df_long$length <- as.numeric(scale(df_long$length, scale = FALSE)) -->
-<!-- ``` -->
-
-<!-- ### **Activity - Intrinsic** -->
-
-<!-- ```{r chunk-22} -->
-
-<!-- activity_I <- glmmTMB(activity ~ sex + period + length + sex * period +  -->
-<!--                         (1 | fish_id) + (1 | group_id),  -->
-<!--                       family = nbinom2, ziformula = ~1, data = df_long) -->
-<!-- check_model(activity_I) -->
-
-<!-- format_glmmtmb( -->
-<!--   activity_I, -->
-<!--   title = "Time Active (s) [Intrinsic Model]", -->
-<!-- #  formula_str = "activity ~ sex + period + length + sex × period + (1 | fish_id) + (1 | group_id), family = negative binomial", -->
-<!--   comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "sexMale" ~ "Sex (Male)", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "length" ~ "Body Length", -->
-<!--     "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period was the only significant predictor of activity (p < 0.001), with activity approximately 2.4-fold higher in Period 2. Sex, body length, and the sex × period interaction were all non-significant (all p > 0.42), suggesting the difference between nudging periods was consistent across sexes and body sizes. Note that the fish-level random effect variance estimate was extremely small, suggesting pair-level clustering accounted for the majority of random variation. -->
-
-
-
-<!-- ### **ANN - Intrinsic** -->
-<!-- ```{r chunk-23} -->
-<!-- ann_I <- glmmTMB(ann ~ sex + period + length + sex * period + (1 | fish_id), family = tweedie(link = "log"), data = df_long) -->
-
-<!-- check_model(ann_I) -->
-
-<!-- format_glmmtmb( -->
-<!--   ann_I, -->
-<!--   title = "ANN (nudges/min active) [Intrinsic Model]", -->
-<!-- #  formula_str = "ann ~ sex + period + length + sex * period + (1 | fish_id), family = Tweedie", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "sexMale" ~ "Sex (Male)", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "length" ~ "Body Length", -->
-<!--     "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-
-
-<!-- Both period (p = 1.45e-06) and the sex × period interaction (LRT = 10.736, p = 0.001) were significant predictors of ANN, with body length and sex regressors not being significant (both p > 0.28). The positive period effect (IRR ≈ 4.82) and negative sex × period interaction (IRR ≈ 0.19) together indicate that ANN increased substantially between periods for females, but these effects largely cancelled out for males, suggesting ANN remained relatively stable across periods for males. -->
-
-<!-- ### **Respiration Rate - Intrinsic**  -->
-<!-- ```{r chunk-24} -->
-
-<!-- resp_I <- lmer(resp ~ sex + period + length + sex * period + (1 | fish_id) + (1 | group_id), REML = FALSE, na.action = na.omit, data = df_long) -->
-
-<!-- check_model(resp_I) -->
-
-<!-- format_lmer( -->
-<!--   resp_I, -->
-<!--   title = "Resp. Rate (beats/10 sec) [Intrinsic Model]", -->
-<!-- #  formula_str = "resp ~ sex + period + length + sex × period + (1 | fish_id) + (1 | group_id), family = gaussian", -->
-<!--   comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "sexMale" ~ "Sex (Male)", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "length" ~ "Body Length", -->
-<!--     "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-
-<!-- Respiration rate declined significantly between periods (p = 6.82e-11), decreasing by approximately 18 beats / 10 seconds on average. Sex, body length, and the sex × period interaction were all non-significant (all p > 0.39), indicating the period effect was consistent across sexes and body sizes. Note that a singular fit was observed for this model, with the fish-level random effect variance estimated at zero, suggesting pair-level clustering accounted for the majority of random variation. -->
-
-<!-- ### **Wall Surfing - Intrinsic** -->
-<!-- ```{r chunk-25} -->
-
-<!-- surfing_I <- glmmTMB(surfing ~ sex + period + length + sex * period + (1 | fish_id) + (1 | group_id), family = nbinom2, ziformula = ~1, data = df_long) -->
-
-<!-- check_model(surfing_I) -->
-
-<!-- format_glmmtmb( -->
-<!--   surfing_I, -->
-<!--   title = "Wall Surfing (s) [Intrinsic Model]", -->
-<!-- #  formula_str = "surfing ~ sex + period + length + sex * period + (1 | fish_id) + (1 | group_id), family = negative binomial", -->
-<!--   comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "sexMale" ~ "Sex (Male)", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "length" ~ "Body Length", -->
-<!--     "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period was a significant predictor of wall surfing (p = 0.016), with wall surfing approximately doubling between periods (IRR ≈ 2.07). Sex, body length, and the sex × period interaction were all non-significant (p > 0.21). As with the activity and respiration rate models, the fish-level random effect variance was essentially zero, with pair-level clustering accounting for the majority of random variation. -->
-
-<!-- ## Intrinsic Summary Table -->
-<!-- ```{r chunk-26} -->
-<!-- length_by_sex <- tapply(df_long$length, df_long$sex, mean) -->
-
-<!-- intrinsic_tbl <- expand.grid( -->
-<!--   sex = c("Female", "Male"), -->
-<!--   period = c("Period 1", "Period 2"), -->
-<!--   fish_id = NA, -->
-<!--   group_id = NA -->
-<!-- ) -->
-<!-- intrinsic_tbl$length <- length_by_sex[intrinsic_tbl$sex] -->
-
-<!-- intrinsic_tbl$activity <- round(predict(activity_I, newdata = intrinsic_tbl, type = "response", re.form = NA), 3) -->
-<!-- intrinsic_tbl$ann <- round(predict(ann_I, newdata = intrinsic_tbl, type = "response", re.form = NA), 3) -->
-<!-- intrinsic_tbl$resp <- round(predict(resp_I, newdata = intrinsic_tbl, type = "response", re.form = NA), 3) -->
-<!-- intrinsic_tbl$surfing <- round(predict(surfing_I, newdata = intrinsic_tbl, type = "response", re.form = NA), 3) -->
-<!-- intrinsic_tbl$length <- round(length_means_original[intrinsic_tbl$sex], 3) -->
-<!-- intrinsic_tbl$fish_id <- NULL -->
-<!-- intrinsic_tbl$group_id <- NULL -->
-
-<!-- intrinsic_tbl -->
-<!-- ``` -->
-
-
-<!-- ## Intrinsic Multiple Comparisons Corrections -->
-<!-- The Benjamini-Hochberg (BH) correction was applied within each intrinsic model as the same set of predictors (sex, period, body length, and their interaction) was tested across all outcome variables. Given the small number of predictors per model (4), corrected p-values are reported in the tables below for transparency but raw p-values are used for interpretation in the narrative, as multiple comparisons correction over a small family of tests can be overly conservative. -->
-<!-- ```{r chunk-27} -->
-<!-- intrinsic_models <- list( -->
-<!--   Activity = activity_I, -->
-<!--   ANN = ann_I, -->
-<!--   `Resp Rate` = resp_I, -->
-<!--   `Wall Surfing` = surfing_I -->
-<!-- ) -->
-
-<!-- fixed_terms <- c("periodPeriod 2", -->
-<!--                  "sexMale", -->
-<!--                  "sexMale:periodPeriod 2", -->
-<!--                  "length") -->
-
-<!-- term_labels <- c("Period 2", -->
-<!--                   "Sex (Male)", -->
-<!--                   "Sex × Period 2", -->
-<!--                   "Length") -->
-
-<!-- get_p <- function(mod, term_pat) { -->
-<!--   # First try drop1 for terms it can test -->
-<!--   d <- tryCatch( -->
-<!--     drop1(mod, test = "Chisq"), -->
-<!--     error = function(e) NULL -->
-<!--   ) -->
-
-<!--   if (!is.null(d) && term_pat %in% rownames(d)) { -->
-<!--     p <- d[rownames(d) == term_pat, "Pr(Chi)"] -->
-<!--     if (length(p) > 0 && !is.na(p)) return(p) -->
-<!--   } -->
-
-<!--   # Fall back to summary z/t-tests for main effects blocked by hierarchy -->
-<!--   s <- tidy(mod, effects = "fixed") -->
-<!--   p <- s |> filter(term == term_pat) |> pull(p.value) -->
-<!--   if (length(p) == 0) NA_real_ else p -->
-<!-- } -->
-
-<!-- raw_p <- map_dfr( -->
-<!--   intrinsic_models, -->
-<!--   function(m) setNames(vapply(fixed_terms, get_p, numeric(1), mod = m), -->
-<!--                        fixed_terms), -->
-<!--   .id = "Behaviour" -->
-<!-- ) -->
-
-<!-- adj_mat <- t(apply(raw_p[fixed_terms], 1, -->
-<!--                    \(p) p.adjust(p, method = "BH"))) -->
-<!-- colnames(adj_mat) <- paste0(fixed_terms, "_adj") -->
-
-<!-- result_tbl <- bind_cols(raw_p, as.data.frame(adj_mat)) -->
-<!-- interleaved <- c(rbind(fixed_terms, paste0(fixed_terms, "_adj"))) -->
-<!-- result_tbl <- result_tbl[, c("Behaviour", interleaved)] -->
-
-<!-- # Format p-values as scientific notation -->
-<!-- result_tbl <- result_tbl |> -->
-<!--   mutate(across(-Behaviour, ~formatC(., format = "e", digits = 2))) -->
-
-<!-- # Interleave "Term" and "Term (adj)" -->
-<!-- col_labels <- c(rbind(term_labels, paste0(term_labels, " (adj)"))) -->
-
-<!-- kable(result_tbl, -->
-<!--       col.names = c("Behaviour", col_labels), -->
-<!--       caption = "Intrinsic model p-values (raw and BH-adjusted within model). Adjusted p-values computed using the Benjamini-Hochberg method.") |> -->
-<!--   kableExtra::kable_styling() |> -->
-<!--   kableExtra::add_header_above(c(" " = 1, -->
-<!--                                   "Period 2" = 2, -->
-<!--                                   "Sex (Male)" = 2, -->
-<!--                                   "Sex × Period 2" = 2, -->
-<!--                                   "Length" = 2)) -->
-<!-- ``` -->
-
-
-
-
-<!-- ## Behavioral Models -->
-<!-- ### **Activity - Behavioral** -->
-<!-- ```{r chunk-28} -->
-
-<!-- activity_B <- glmmTMB(activity ~ period + ann + resp + surfing + (1 | fish_id) + (1 | group_id), family = nbinom2, ziformula = ~1, data = df_long) -->
-
-<!-- check_model(activity_B) -->
-
-<!-- format_glmmtmb( -->
-<!--   activity_B, -->
-<!--   title = "Time Active (s) [Behavioral Model]", -->
-<!-- #  formula_str = "activity ~ period + ann + resp + surfing + (1 | fish_id) + (1 | group_id), family = negative binomial", -->
-<!--   comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "ann" ~ "ANN (nudges/min active)", -->
-<!--     "resp" ~ "Resp. Rate (beats/10 sec)", -->
-<!--     "surfing" ~ "Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-
-<!-- Wall surfing was the only significant predictor of activity (LRT = 13.48, p < 0.001), with period, ANN, and respiration rate all non-significant. Moderate collinearity was detected for period (VIF between 5 and 10), though below the threshold warranting concern -->
-
-
-<!-- ### **ANN - Behavioral** -->
-<!-- ```{r chunk-29} -->
-
-<!-- ann_B <- glmmTMB(ann ~ activity + resp + surfing + period + (1 | fish_id), family = tweedie(link = "log"), data = df_long) -->
-
-<!-- check_model(ann_B) -->
-
-<!-- format_glmmtmb( -->
-<!--   ann_B, -->
-<!--   title = "ANN (nudges/min active) [Behavioral Model]", -->
-<!-- #  formula_str = "ann ~ activity + resp + surfing + period + (1 | fish_id), family = tweedie", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "activity" ~ "Time Active (s)", -->
-<!--     "resp" ~ "Resp. Rate (beats/10 sec)", -->
-<!--     "surfing" ~ "Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- No predictors were significant in the ANN behavioral model, with period, activity, respiration rate, and wall surfing all non-significant (all p > 0.12). Some numerical warnings were produced during model fitting, likely reflecting the fact that none of the predictors were explaining meaningful variation in ANN. -->
-
-
-<!-- ### **Respiration Rate - Behavioral** -->
-<!-- ```{r chunk-30} -->
-
-<!-- resp_B <- lmer(resp ~ period + activity + ann + surfing + (1 | fish_id) + (1 | group_id), REML = FALSE, na.action = na.omit, data = df_long) -->
-
-<!-- check_model(resp_B) -->
-
-<!-- format_lmer( -->
-<!--   resp_B, -->
-<!--   title = "Resp. Rate (beats/10 sec) [Behavioral Model]", -->
-<!-- #  formula_str = "resp ~ period + activity + ann + surfing + (1 | fish_id) + (1 | group_id), family = gaussian", -->
-<!--   comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "activity" ~ "Time Active (s)", -->
-<!--     "ann" ~ "ANN (nudges/min active)", -->
-<!--     "surfing" ~ "Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period and wall surfing were both significant predictors of respiration rate (LRT = 63.02, p < 0.001 and LRT = 5.95, p = 0.015 respectively), with respiration rate declining substantially between periods and increasing slightly with wall surfing. Activity and ANN were non-significant. The fish-level random effect variance was again zero, consistent with the pattern seen in other models." -->
-
-
-<!-- ### **Wall Surfing - Behavioral** -->
-<!-- ```{r chunk-31} -->
-
-<!-- surfing_B <- glmmTMB(surfing ~ period + activity + ann + resp + (1 | fish_id) + (1 | group_id), family = nbinom2, ziformula = ~1, data = df_long) -->
-
-<!-- check_model(surfing_B) -->
-
-<!-- format_glmmtmb( -->
-<!--   surfing_B, -->
-<!--   title = "Wall Surfing (s) [Behavioral Model]", -->
-<!-- #  formula_str = "surfing ~ period + activity + ann + resp + (1 | fish_id) + (1 | group_id), family = negative binomial", -->
-<!--   comments = "Both fish-level and group-level random effect variances were essentially zero, suggesting wall surfing variation in this model was largely explained by the fixed effects alone.", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "periodPeriod 2" ~ "Period 2", -->
-<!--     "activity" ~ "Time Active (s)", -->
-<!--     "ann" ~ "ANN (nudges/min active)", -->
-<!--     "resp" ~ "Resp. Rate (beats/10 sec)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period and activity were significant predictors of wall surfing (LRT = 6.10, p = 0.014 and LRT = 11.74, p < 0.001 respectively), with wall surfing increasing between periods and positively associated with activity. Respiration rate was marginally non-significant (LRT = 3.73, p = 0.053) and ANN was non-significant. Notably, both random effect variances were essentially zero in this model, suggesting wall surfing variation was largely explained by the fixed effects alone. -->
-
-
-<!-- ## Behavioral Summary Table -->
-<!-- ```{r chunk-32} -->
-<!-- behavioral_tbl <- df_long |> -->
-<!--   group_by(sex, period) |> -->
-<!--   summarise( -->
-<!--     activity = mean(activity, na.rm = TRUE), -->
-<!--     ann = mean(ann,      na.rm = TRUE), -->
-<!--     resp = mean(resp,     na.rm = TRUE), -->
-<!--     surfing = mean(surfing,  na.rm = TRUE), -->
-<!--     .groups = "drop" -->
-<!--   ) |> -->
-<!--   mutate(fish_id = NA, group_id = NA) -->
-
-<!-- behavioral_tbl$activity_pred <- round(predict(activity_B, newdata = behavioral_tbl, type = "response", re.form = NA), 3) -->
-<!-- behavioral_tbl$ann_pred      <- round(predict(ann_B,      newdata = behavioral_tbl, type = "response", re.form = NA), 3) -->
-<!-- behavioral_tbl$resp_pred     <- round(predict(resp_B,     newdata = behavioral_tbl, type = "response", re.form = NA), 3) -->
-<!-- behavioral_tbl$surfing_pred  <- round(predict(surfing_B,  newdata = behavioral_tbl, type = "response", re.form = NA), 3) -->
-
-<!-- behavioral_tbl |> -->
-<!--   select(sex, period, activity_pred, ann_pred, resp_pred, surfing_pred) |> -->
-<!--   kable(col.names = c("Sex", "Period", "Activity (s)", "ANN (nudges/min)", "Resp Rate (beats/10 sec)", "Wall Surfing (s)"), -->
-<!--         caption = "Predicted behavioral values at sex- and period-specific mean predictor values.") |> -->
-<!--   kableExtra::kable_styling() |> -->
-<!--   kableExtra::collapse_rows(columns = 1, valign = "top") -->
-<!-- ``` -->
-
-<!-- ## Behavioral Multiple Comparisons Correction -->
-<!-- A multiple comparisons correction was not applied to the behavioral models as the predictor sets differ across outcome variables. -->
-
-<!-- ## Lagged Models -->
-<!-- ### **Activity - Lagged** -->
-<!-- ```{r chunk-33} -->
-
-<!-- activity_L <- glmmTMB(activity_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id),  -->
-<!--                       family = nbinom2, ziformula = ~1, data = df) -->
-
-<!-- check_model(activity_L) -->
-
-<!-- dropterm(activity_L, test = "Chisq") -->
-
-<!-- format_glmmtmb( -->
-<!--   activity_L, -->
-<!--   title = "Time Active in Period 2 (s) [Lagged Model]", -->
-<!-- #  formula_str = "activity_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), family = negative binomial", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_first" ~ "P1 Activity (s)", -->
-<!--     "ann_first" ~ "P1 ANN (nudges/min active)", -->
-<!--     "resp_first" ~ "P1 Resp. Rate (beats/10 sec)", -->
-<!--     "surfing_first" ~ "P1 Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Model fit for the activity lagged model was poor, reflected by an extremely large dispersion parameter (5.7 × 10⁸), likely due to the 300-second activity ceiling imposed by monitoring for a set time period in Period 2, creating a distributional shape the negative binomial could not accommodate. Results from this model should be interpreted with caution. No Period 1 predictors were significant. -->
-
-
-<!-- ### **ANN - Lagged** -->
-<!-- ```{r chunk-34} -->
-
-<!-- ann_L <- glmmTMB(ann_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), family = tweedie(link = "log"), data = df) -->
-
-<!-- check_model(ann_L) -->
-
-<!-- format_glmmtmb( -->
-<!--   ann_L, -->
-<!--   title = "ANN in Period 2 (nudges/min active) [Lagged Model]", -->
-<!-- #  formula_str = "ann_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), family = tweedie", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_first" ~ "P1 Activity (s)", -->
-<!--     "ann_first" ~ "P1 ANN (nudges/min active)", -->
-<!--     "resp_first" ~ "P1 Resp. Rate (beats/10 sec)", -->
-<!--     "surfing_first" ~ "P1 Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- No nudging period 1 predictors were significant in the lagged ANN model (all p > 0.11, suggesting that nudging rate while active in nudging period 2 was not meaningfully predicted by any nudging period 1 behavioral measures. -->
-
-<!-- ### **Respiration Rate - Lagged** -->
-<!-- ```{r chunk-35} -->
-<!-- resp_L <- lmer(resp_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), REML = FALSE, na.action = na.omit, data = df_complete_resp) -->
-
-<!-- check_model(resp_L) -->
-
-<!-- format_lmer( -->
-<!--   resp_L, -->
-<!--   title = "Resp. Rate in Period 2 (beats/10 sec) [Lagged Model]", -->
-<!-- #  formula_str = "resp_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), family = gaussian", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_first" ~ "P1 Activity (s)", -->
-<!--     "ann_first" ~ "P1 ANN (nudges/min active)", -->
-<!--     "resp_first" ~ "P1 Resp. Rate (beats/10 sec)", -->
-<!--     "surfing_first" ~ "P1 Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period 1 wall surfing showed a marginal positive association with Period 2 respiration rate (LRT = 3.74, p = 0.053), while activity, ANN, and Period 1 respiration rate were all non-significant (all p > 0.21). This model was fit on 35 individuals due to missing nudging period 2 respiration data in 3 fish. -->
-
-
-<!-- ### **Wall Surfing - Lagged** -->
-<!-- ```{r chunk-36} -->
-
-<!-- surfing_L <- glmmTMB(surfing_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), data = df, family = nbinom2, ziformula = ~1) -->
-
-<!-- check_model(surfing_L) -->
-
-<!-- format_glmmtmb( -->
-<!--   surfing_L, -->
-<!--   title = "Wall Surfing in Period 2 (s) [Lagged Model]", -->
-<!-- #  formula_str = "surfing_second ~ activity_first + ann_first + resp_first + surfing_first + (1 | group_id), family = negative binomial", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_first" ~ "P1 Activity (s)", -->
-<!--     "ann_first" ~ "P1 ANN (nudges/min active)", -->
-<!--     "resp_first" ~ "P1 Resp. Rate (beats/10 sec)", -->
-<!--     "surfing_first" ~ "P1 Wall Surfing (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-
-<!-- Period 1 ANN and Period 1 respiration rate were both significant negative predictors of Period 2 wall surfing (LRT = 7.11, p = 0.008 and LRT = 16.35, p < 0.001 respectively), suggesting that fish with higher nudging rates while active and higher respiration rates in Period 1 showed less wall surfing in Period 2. Period 1 activity and Period 1 wall surfing were both non-significant (p > 0.19). -->
-
-
-<!-- ## Lagged Summary Table -->
-<!-- ```{r chunk-37} -->
-<!-- lagged_tbl <- df |> -->
-<!--   group_by(sex) |> -->
-<!--   summarise( -->
-<!--     activity_first = mean(activity_first, na.rm = TRUE), -->
-<!--     ann_first = mean(ann_first,      na.rm = TRUE), -->
-<!--     resp_first = mean(resp_first,     na.rm = TRUE), -->
-<!--     surfing_first = mean(surfing_first,  na.rm = TRUE), -->
-<!--     .groups = "drop" -->
-<!--   ) |> -->
-<!--   mutate(group_id = NA) -->
-
-<!-- lagged_tbl$activity_pred <- round(predict(activity_L, newdata = lagged_tbl, type = "response", re.form = NA), 3) -->
-<!-- lagged_tbl$ann_pred      <- round(predict(ann_L,      newdata = lagged_tbl, type = "response", re.form = NA), 3) -->
-<!-- lagged_tbl$resp_pred     <- round(predict(resp_L,     newdata = lagged_tbl, type = "response", re.form = NA), 3) -->
-<!-- lagged_tbl$surfing_pred  <- round(predict(surfing_L,  newdata = lagged_tbl, type = "response", re.form = NA), 3) -->
-
-<!-- lagged_tbl |> -->
-<!--   select(sex, activity_pred, ann_pred, resp_pred, surfing_pred) |> -->
-<!--   kable(col.names = c("Sex", "Activity (s)", "ANN", "Resp Rate", "Wall Surfing (s)"), -->
-<!--         caption = "Predicted nudging period 2 behavioral values at sex-specific mean nudging period 1 predictor values. Sex differences in predictions reflect differences in period 1 predictor means rather than a sex effect in the models.") |> -->
-<!--   kableExtra::kable_styling() -->
-<!-- ``` -->
-
-<!-- ###Lagged Multiple Comparisons -->
-
-<!-- BH correction was applied within each lagged model as the same set of Period 1 predictors (activity, ANN, respiration rate, and wall surfing) was tested across all Period 2 outcome variables. As with the intrinsic models, corrected p-values are reported in the tables below for transparency but raw p-values are used for interpretation in the narrative given the small family size. -->
-
-<!-- ```{r chunk-38} -->
-<!-- lagged_models <- list( -->
-<!--   Activity = activity_L, -->
-<!--   ANN = ann_L, -->
-<!--   `Resp Rate` = resp_L, -->
-<!--   `Wall Surfing` = surfing_L -->
-<!-- ) -->
-
-<!-- fixed_terms_L <- c("activity_first", -->
-<!--                  "ann_first", -->
-<!--                  "resp_first", -->
-<!--                  "surfing_first") -->
-
-<!-- term_labels_L <- c("P1 Activity", -->
-<!--                   "P1 ANN", -->
-<!--                   "P1 Resp. Rate", -->
-<!--                   "P1 Wall Surfing") -->
-
-<!-- raw_p_L <- map_dfr( -->
-<!--   lagged_models, -->
-<!--   function(m) setNames(vapply(fixed_terms_L, get_p, numeric(1), mod = m), -->
-<!--                        fixed_terms_L), -->
-<!--   .id = "Behaviour" -->
-<!-- ) -->
-
-<!-- adj_mat_L <- t(apply(raw_p_L[fixed_terms_L], 1, -->
-<!--                    \(p) p.adjust(p, method = "BH"))) -->
-<!-- colnames(adj_mat_L) <- paste0(fixed_terms_L, "_adj") -->
-
-<!-- result_tbl_L <- bind_cols(raw_p_L, as.data.frame(adj_mat_L)) -->
-<!-- interleaved_L <- c(rbind(fixed_terms_L, paste0(fixed_terms_L, "_adj"))) -->
-<!-- result_tbl_L <- result_tbl_L[, c("Behaviour", interleaved_L)] -->
-
-<!-- # Format p-values as scientific notation -->
-<!-- result_tbl_L <- result_tbl_L |> -->
-<!--   mutate(across(-Behaviour, ~formatC(., format = "e", digits = 2))) -->
-
-<!-- # Interleave "Term" and "Term (adj)" -->
-<!-- col_labels_L <- c(rbind(term_labels_L, paste0(term_labels_L, " (adj)"))) -->
-
-<!-- kable(result_tbl_L, -->
-<!--       col.names = c("Behaviour", col_labels_L), -->
-<!--       caption = "Lagged model p-values (raw and BH-adjusted within model). Adjusted p-values computed using the Benjamini-Hochberg method.") |> -->
-<!--   kableExtra::kable_styling() |> -->
-<!--   kableExtra::add_header_above(c(" " = 1, -->
-<!--                                   "P1 Activity" = 2, -->
-<!--                                   "P1 ANN" = 2, -->
-<!--                                   "P1 Resp. Rate" = 2, -->
-<!--                                   "P1 Wall Surfing" = 2)) -->
-<!-- ``` -->
-
-
-
-<!-- # Foraging Period Models -->
-<!-- ## Model Selection -->
-<!-- Foraging period models included only Period 2 behavioral predictors, as the foraging trial occurred immediately following Period 2, making these the most relevant behavioral measures for predicting foraging outcomes. Period 1 behaviors were excluded to avoid redundancy with Period 2 measures and to keep the number of predictors manageable given the sample size, as including too many predictors relative to observations risks overfitting (Harrell, 2015). Respiration rate was excluded from global models as it did not appear in any top candidate models (ΔAICc < 2) in preliminary analyses including it as a candidate predictor, allowing retention of the full sample of 38 individuals. Sex and body length were included as covariates given their potential influence on foraging behavior independent of nudging period behaviors. -->
-<!-- ### Feed ~ second period -->
-
-<!-- ```{r} -->
-<!-- # Dredge/averaged model selection -->
-<!-- options(na.action = "na.fail")  # required for dredge -->
-
-<!-- global_feed_mod <- glmmTMB(feed_time ~ sex + scale(length) + -->
-<!--                               scale(activity_second) + scale(ann_second) + scale(resp_second) +  -->
-<!--                               scale(surfing_second) + scale(activity_first) + scale(ann_first) + scale(surfing_first) + scale(resp_first) + (1 | group_id), -->
-<!--                             data = df_complete_resp, family = nbinom2) -->
-
-<!-- # Run dredge to enumerate all subsets and compute AICc: -->
-<!-- feed_dredged <- dredge(global_feed_mod, rank = "AICc") -->
-
-<!-- # Take a look at the top models: -->
-<!-- head(feed_dredged, 10) -->
-
-<!-- # Subset AICc < 2 -->
-<!-- feed_top_set <- get.models(feed_dredged, subset = delta < 2) -->
-
-<!-- # Do model‐averaging over that set: -->
-<!-- feed_avg_mod <- model.avg(feed_top_set) -->
-
-<!-- # Summarize averaged coefficients & relative importance: -->
-<!-- summary(feed_avg_mod) -->
-
-<!-- # Extract variable importance (sum of weights across models where they appear): -->
-<!-- sw(feed_avg_mod) -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- # Dredge/averaged model selection -->
-<!-- options(na.action = "na.fail")  # required for dredge -->
-
-<!-- global_feed_mod_2 <- glmmTMB(feed_time ~ sex + scale(length) + -->
-<!--                               scale(activity_second) + scale(ann_second) + -->
-<!--                               scale(surfing_second) + scale(activity_first) + scale(ann_first) + scale(surfing_first) + scale(resp_first) + (1 | group_id), -->
-<!--                             data = df, family = nbinom2) -->
-
-<!-- # Run dredge to enumerate all subsets and compute AICc: -->
-<!-- feed_dredged_2 <- dredge(global_feed_mod_2, rank = "AICc") -->
-
-<!-- # Take a look at the top models: -->
-<!-- head(feed_dredged_2, 10) -->
-
-<!-- # Subset AICc < 2 -->
-<!-- feed_top_set_2 <- get.models(feed_dredged_2, subset = delta < 2) -->
-
-<!-- # Do model‐averaging over that set: -->
-<!-- feed_avg_mod_2 <- model.avg(feed_top_set_2) -->
-
-<!-- # Summarize averaged coefficients & relative importance: -->
-<!-- summary(feed_avg_mod_2) -->
-
-<!-- # Extract variable importance (sum of weights across models where they appear): -->
-<!-- sw(feed_avg_mod_2) -->
-<!-- ``` -->
-
-<!-- ```{r chunk-39} -->
-<!-- feed_mod_p2 <- glmmTMB(feed_time ~ activity_second + ann_first + (1 | group_id), -->
-<!--                         data = df, family = nbinom2) -->
-
-<!-- check_model(feed_mod_p2) -->
-
-<!-- format_glmmtmb( -->
-<!--   feed_mod_p2, -->
-<!--   title = "Time to Find Food (s)", -->
-<!-- #  formula_str = "feed_time ~ activity_second + ann_first + (1 | group_id), family = negative binomial", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_second" ~ "P2 Activity (s)", -->
-<!--     "ann_first" ~ "P1 ANN (nudges/min active)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-<!-- Period 2 activity was a significant negative predictor of foraging time (LRT = 8.70, p = 0.003), with more active fish taking less time to reach and consume food (IRR = 0.995 per second of activity). While the per-second effect is small, it is meaningful across the observed range of activity values. -->
-
-
-<!-- ### Freeze ~ second period -->
-
-<!-- ```{r} -->
-<!-- # Dredge/averaged model selection -->
-<!-- options(na.action = "na.fail")  -->
-
-<!-- global_freeze_mod <- glmmTMB(freeze_time ~ sex + scale(length) + -->
-<!--                                 scale(activity_second) + scale(ann_second) + scale(resp_second) +  -->
-<!--                                 scale(surfing_second) + scale(activity_first) + scale(ann_first) + scale(surfing_first) + scale(resp_first) + (1 | group_id), -->
-<!--                              data = df_complete_resp, family = nbinom2) -->
-
-<!-- # Run dredge to enumerate all subsets and compute AICc: -->
-<!-- freeze_dredged <- dredge(global_freeze_mod, rank = "AICc") -->
-
-<!-- # Take a look at the top models: -->
-<!-- head(freeze_dredged, 10) -->
-
-<!-- # Subset so AICc < 2 -->
-<!-- freeze_top_set <- get.models(freeze_dredged, subset = delta < 2) -->
-
-<!-- # Do model‐averaging over that set: -->
-<!-- freeze_avg_mod <- model.avg(freeze_top_set) -->
-
-<!-- # Summarize averaged coefficients & relative importance: -->
-<!-- summary(freeze_avg_mod) -->
-
-<!-- # Extract variable importance (sum of weights across models where they appear): -->
-<!-- sw(freeze_avg_mod) -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- # Dredge/averaged model selection -->
-<!-- options(na.action = "na.fail")  -->
-
-<!-- global_freeze_mod_2 <- glmmTMB(freeze_time ~ sex + scale(length) + -->
-<!--                                 scale(activity_second) + scale(ann_second) + -->
-<!--                                 scale(surfing_second) + scale(activity_first) + scale(ann_first) + scale(surfing_first) + scale(resp_first) + (1 | group_id), -->
-<!--                              data = df, family = nbinom2) -->
-
-<!-- # Run dredge to enumerate all subsets and compute AICc: -->
-<!-- freeze_dredged_2 <- dredge(global_freeze_mod_2, rank = "AICc") -->
-
-<!-- # Take a look at the top models: -->
-<!-- head(freeze_dredged_2, 10) -->
-
-<!-- # Subset so AICc < 2 -->
-<!-- freeze_top_set_2 <- get.models(freeze_dredged_2, subset = delta < 2) -->
-
-<!-- # Do model‐averaging over that set: -->
-<!-- freeze_avg_mod_2 <- model.avg(freeze_top_set_2) -->
-
-<!-- # Summarize averaged coefficients & relative importance: -->
-<!-- summary(freeze_avg_mod_2) -->
-
-<!-- # Extract variable importance (sum of weights across models where they appear): -->
-<!-- sw(freeze_avg_mod_2) -->
-<!-- ``` -->
-
-
-<!-- ```{r chunk-40} -->
-<!-- freeze_mod_p2 <- glmmTMB(freeze_time ~ activity_first + (1 | group_id), -->
-<!--                           data = df, family = nbinom2) -->
-
-<!-- check_model(freeze_mod_p2) -->
-
-<!-- format_glmmtmb( -->
-<!--   freeze_mod_p2, -->
-<!--   title = "Freeze Time During Foraging (s)", -->
-<!-- #  formula_str = "freeze_time ~ activity_first + (1 | group_id), family = negative binomial", -->
-<!--   coef_rename = list( -->
-<!--     "(Intercept)" ~ "Intercept", -->
-<!--     "activity_first" ~ "P1 Activity (s)" -->
-<!--   ) -->
-<!-- ) -->
-<!-- ``` -->
-
-<!-- # Appendices -->
-
-<!-- # Figures and Tables -->
-<!-- ## Export data for figure generation in separate document -->
-
-<!-- ```{r chunk-44} -->
-<!-- # Run this chunk to save all objects needed for figure generation to an RData -->
-<!-- # file.  -->
-<!-- # To load instead of re-running analysis, replace the source() call in setup -->
-<!-- # with: load("figure_data.RData") -->
-
-
-<!-- clr_vals <- c("#1f77b4", "#ff7f0e") -->
-<!-- period_labs <- c("Nudging Period 1", "Nudging Period 2") -->
-
-<!-- save( -->
-<!--   # Datasets -->
-<!--   df, -->
-<!--   df_long, -->
-<!--   df_complete_resp, -->
-<!--   plotdat,           # imputed respiration data for trend plot -->
-
-<!--   # Fitted models (needed if you want to add model-based prediction lines) -->
-<!--   feed_mod_p2, -->
-<!--   freeze_mod_p2, -->
-<!--   surfing_B, -->
-<!--   resp_B, -->
-<!--   surfing_L, -->
-
-<!--   # Helper objects -->
-<!--   clr_vals, -->
-<!--   period_labs, -->
-
-<!--   file = "figure_data.RData" -->
-<!-- ) -->
-
-<!-- message("Exported figure_data.RData — ", format(file.info("figure_data.RData")$size / 1024, digits = 3), " KB") -->
-<!-- ``` -->
-
-
-<!-- ## Descriptive Statistics Table -->
-
-<!-- ```{r chunk-45} -->
-
-<!-- make_desc_paper <- function(data, vars, var_labels, period_label) { -->
-<!--   data |> -->
-<!--     summarise( -->
-<!--       across(all_of(vars), -->
-<!--              ~paste0(round(mean(., na.rm = TRUE), 2), -->
-<!--                     " (", round(sd(., na.rm = TRUE), 2), ")", -->
-<!--                     " [", round(min(., na.rm = TRUE), 2), -->
-<!--                     "–", round(max(., na.rm = TRUE), 2), "]")), -->
-<!--       .groups = "drop" -->
-<!--     ) |> -->
-<!--     pivot_longer(everything(), names_to = "variable", values_to = "summary") |> -->
-<!--     mutate( -->
-<!--       variable = var_labels[variable], -->
-<!--       period = period_label -->
-<!--     ) -->
-<!-- } -->
-
-<!-- p1_simple <- make_desc_paper(df, -->
-<!--   c("activity_first", "ann_first", "nudges_first", "resp_first", "surfing_first"), -->
-<!--   c(activity_first = "Activity (s)", ann_first = "ANN", nudges_first = "Nudges", -->
-<!--     resp_first = "Resp Rate", surfing_first = "Wall Surfing (s)"), -->
-<!--   "Period 1") -->
-
-<!-- p2_simple <- make_desc_paper(df, -->
-<!--   c("activity_second", "ann_second", "nudges_second", "resp_second", "surfing_second"), -->
-<!--   c(activity_second = "Activity (s)", ann_second = "ANN", nudges_second = "Nudges", -->
-<!--     resp_second = "Resp Rate", surfing_second = "Wall Surfing (s)"), -->
-<!--   "Period 2") -->
-
-<!-- length_simple <- make_desc_paper(df, -->
-<!--   c("length"), -->
-<!--   c(length = "Length (cm)"), -->
-<!--   "—") -->
-
-<!-- foraging_simple <- make_desc_paper(df, -->
-<!--   c("feed_time", "freeze_time"), -->
-<!--   c(feed_time = "Foraging Time (s)", freeze_time = "Freeze Time (s)"), -->
-<!--   "Foraging") -->
-
-<!-- bind_rows(p1_simple, p2_simple, foraging_simple, length_simple) |> -->
-<!--   gt() |> -->
-<!--   cols_label( -->
-<!--     variable = "Variable", -->
-<!--     period = "Period", -->
-<!--     summary = "Mean (SD) [Min–Max]" -->
-<!--   ) |> -->
-<!--   tab_header(title = "Descriptive statistics by monitoring period") |> -->
-<!--   tab_row_group(label = "Freeze Time (s)",  rows = variable == "Freeze Time (s)") |> -->
-<!--   tab_row_group(label = "Foraging Time (s)",    rows = variable == "Foraging Time (s)") |> -->
-<!--   tab_row_group(label = "Wall Surfing (s)", rows = variable == "Wall Surfing (s)") |> -->
-<!--   tab_row_group(label = "Resp Rate",        rows = variable == "Resp Rate") |> -->
-<!--   tab_row_group(label = "Nudges",           rows = variable == "Nudges") |> -->
-<!--   tab_row_group(label = "ANN",              rows = variable == "ANN") |> -->
-<!--   tab_row_group(label = "Activity (s)",     rows = variable == "Activity (s)") |> -->
-<!--   tab_row_group(label = "Length (cm)",      rows = variable == "Length (cm)") |> -->
-<!--   cols_hide(variable) |> -->
-<!--   tab_style( -->
-<!--     style = cell_text(weight = "bold"), -->
-<!--     locations = cells_row_groups() -->
-<!--   ) |> -->
-<!--   tab_source_note("Values shown as mean (SD) [min–max].") |> -->
-<!--   tab_options(table.width = pct(100)) -->
-<!-- ``` -->
-
-<!-- ```{r chunk-46} -->
-<!-- desc_tbl <- bind_rows(p1_stats, p2_stats, foraging_stats, length_stats) |> -->
-<!--   pivot_wider(names_from = sex, values_from = summary) |> -->
-<!--   select(variable, period, Overall, Female, Male) |> -->
-<!--   mutate(variable = factor(variable, levels = c( -->
-<!--     "Length (cm)", -->
-<!--     "Activity (s)", -->
-<!--     "ANN", -->
-<!--     "Nudges", -->
-<!--     "Resp Rate", -->
-<!--     "Wall Surfing (s)", -->
-<!--     "Foraging Time (s)", -->
-<!--     "Freeze Time (s)" -->
-<!--   ))) |> -->
-<!--   arrange(variable, period) -->
-
-<!-- # Get row indices for each group -->
-<!-- get_group_rows <- function(data, var_name) { -->
-<!--   which(data$variable == var_name) -->
-<!-- } -->
-
-<!-- desc_tbl |> -->
-<!--   select(-variable) |> -->
-<!--   kable( -->
-<!--     col.names = c("Period", "Overall", "Female", "Male"), -->
-<!--     caption = "Descriptive statistics by sex and monitoring period", -->
-<!--     booktabs = TRUE -->
-<!--   ) |> -->
-<!--   kable_styling( -->
-<!--     latex_options = c("striped", "hold_position"), -->
-<!--     full_width = FALSE -->
-<!--   ) |> -->
-<!--   pack_rows("Length (cm)",       -->
-<!--             min(get_group_rows(desc_tbl, "Length (cm)")), -->
-<!--             max(get_group_rows(desc_tbl, "Length (cm)")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Activity (s)",      -->
-<!--             min(get_group_rows(desc_tbl, "Activity (s)")), -->
-<!--             max(get_group_rows(desc_tbl, "Activity (s)")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("ANN",               -->
-<!--             min(get_group_rows(desc_tbl, "ANN")), -->
-<!--             max(get_group_rows(desc_tbl, "ANN")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Nudges",            -->
-<!--             min(get_group_rows(desc_tbl, "Nudges")), -->
-<!--             max(get_group_rows(desc_tbl, "Nudges")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Resp Rate",         -->
-<!--             min(get_group_rows(desc_tbl, "Resp Rate")), -->
-<!--             max(get_group_rows(desc_tbl, "Resp Rate")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Wall Surfing (s)",  -->
-<!--             min(get_group_rows(desc_tbl, "Wall Surfing (s)")), -->
-<!--             max(get_group_rows(desc_tbl, "Wall Surfing (s)")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Foraging Time (s)",     -->
-<!--             min(get_group_rows(desc_tbl, "Foraging Time (s)")), -->
-<!--             max(get_group_rows(desc_tbl, "Foraging Time (s)")), -->
-<!--             bold = TRUE) |> -->
-<!--   pack_rows("Freeze Time (s)",   -->
-<!--             min(get_group_rows(desc_tbl, "Freeze Time (s)")), -->
-<!--             max(get_group_rows(desc_tbl, "Freeze Time (s)")), -->
-<!--             bold = TRUE) |> -->
-<!--   footnote( -->
-<!--     number = "Values shown as mean (SD) [min--max].", -->
-<!--     escape = FALSE -->
-<!--   ) -->
-<!-- ``` -->
-
-
-<!-- ## Respiration Rate Trends Plot -->
-
-<!-- ```{r chunk-47} -->
-<!-- rr_plot <- ggplot(plotdat, -->
-<!--        aes(x = period, y = resp, -->
-<!--            group = interaction(group_id, fish_id), -->
-<!--            color = fish_id)) + -->
-<!--   geom_line(linewidth = 0.7, alpha = .65) + -->
-<!--   geom_point(aes(shape = point_type, fill = point_type), -->
-<!--              size = 3, stroke = 0.3) + -->
-<!--   scale_shape_manual(values = c(Observed = 21, Imputed = 24), name = NULL) + -->
-<!--   scale_fill_manual(values = c(Observed = "black", Imputed = "orange"), -->
-<!--                     name = NULL) + -->
-<!--   labs(x = NULL, -->
-<!--        y = "Respiration rate (beats/10 sec)") + -->
-<!--   guides(color = "none") + -->
-<!--   theme_minimal(base_size = 20) + -->
-<!--   theme(legend.position = c(0.85, 0.91), -->
-<!--         legend.background = element_rect(fill = "white", color = "black")) -->
-
-<!-- # ggsave("figures/resp_trend.png",     plot = rr_plot, width = 7, height = 5, dpi = 600) -->
-<!-- # ggsave("figures/svg/resp_trend.svg", plot = rr_plot, width = 7, height = 5, device = "svg") -->
-<!-- rr_plot -->
-<!-- ``` -->
-
-<!-- ## Between Period Contrast Plot -->
-<!-- ```{r chunk-48} -->
-<!-- # Get relevant data -->
-<!-- plot_btwn_prd <- df_long |> -->
-<!--   select(fish_id, period, activity, ann, surfing, resp) |> -->
-<!--   pivot_longer(cols = -c(fish_id, period), -->
-<!--                names_to = "behaviour", -->
-<!--                values_to = "value") |> -->
-<!--   mutate( -->
-<!--     period = factor( -->
-<!--       case_match(period, -->
-<!--         "Period 1" ~ "Nudging Period 1", -->
-<!--         "Period 2" ~ "Nudging Period 2"), -->
-<!--       levels = c("Nudging Period 1", "Nudging Period 2")), -->
-<!--     behaviour_f = factor( -->
-<!--       behaviour, -->
-<!--       levels = c("activity", "ann", "surfing", "resp"), -->
-<!--       labels = c("Activity", "ANN", "Wall Surfing", "Respiration Rate") -->
-<!--     ) -->
-<!--   ) -->
-
-<!-- make_panel <- function(df, beh_name, y_lab) { -->
-<!--   ggplot(df |> filter(behaviour_f == beh_name), -->
-<!--          aes(x = period, y = value, fill = period)) + -->
-<!--     stat_boxplot(geom = "errorbar", width = 0.25) + -->
-<!--     geom_boxplot(outlier.shape = 21, width = 0.6, alpha = 0.7) + -->
-<!--     scale_fill_manual(values = c("#1f77b4", "#ff7f0e"), guide = "none") + -->
-<!--     labs(x = NULL, y = y_lab, title = beh_name) + -->
-<!--     theme_minimal(base_size = 12) + -->
-<!--     theme(plot.title = element_text(size = 15, hjust = 0.5)) -->
-<!-- } -->
-
-<!-- p_act  <- make_panel(plot_btwn_prd, "Activity",         "Seconds") -->
-<!-- p_ann  <- make_panel(plot_btwn_prd, "ANN",              "Nudges/min active") -->
-<!-- p_surf <- make_panel(plot_btwn_prd, "Wall Surfing",     "Seconds") -->
-<!-- p_resp <- make_panel(plot_btwn_prd, "Respiration Rate", "Breaths/min") -->
-
-<!-- p_grid <- (p_act + p_ann) / (p_surf + p_resp) + -->
-<!--           plot_layout(guides = "collect") -->
-
-<!-- # ggsave("figures/period_behaviour.png", -->
-<!-- #        plot = p_grid, width = 8, height = 8, dpi = 600) -->
-<!-- # ggsave("figures/svg/period_behaviour.svg", -->
-<!-- #        plot = p_grid, width = 8, height = 8, device = "svg") -->
-<!-- p_grid -->
-<!-- ``` -->
-
-<!-- ## Wall Surfing figure -->
-<!-- ```{r chunk-49} -->
-
-<!-- p_ann_surf <- ggplot(df, aes(ann_first, surfing_second)) + -->
-<!--   geom_point(size = 2, alpha = .8) + -->
-<!--   geom_smooth(method = "loess", se = TRUE) + -->
-<!--   coord_cartesian(xlim = c(0, 12)) + -->
-<!--   labs(x = "ANN in Nudging Period 1 (nudges / minute active)", -->
-<!--        y = "Wall surfing in Nudging Period 2 (s)", -->
-<!--        title = "B  Period 1 ANN\u2013Period 2 wall surfing") + -->
-<!--   theme_minimal(base_size = 11) -->
-
-
-<!-- # ggsave("figures/wall_surf_revised.png", -->
-<!-- #        figure_ws, width = 5, height = 4, dpi = 600) -->
-<!-- # ggsave("figures/svg/wall_surf_revised.svg", -->
-<!-- #        figure_ws, width = 5, height = 4, device = "svg") -->
-<!-- p_ann_surf -->
-<!-- ``` -->
-
-<!-- ## Foraging figure -->
-
-
-<!-- ```{r chunk-50} -->
-<!-- p_feed_act <- ggplot(df, aes(activity_second, feed_time)) + -->
-<!--   geom_point(size = 2, alpha = .8) + -->
-<!--   geom_smooth(method = MASS::glm.nb, -->
-<!--               se = TRUE, -->
-<!--               fullrange = FALSE, -->
-<!--               method.args = list(init.theta = 1)) + -->
-<!--   labs(x = "Activity in Nudging Period 2 (s)", -->
-<!--        y = "Latency to feed (s)", -->
-<!--        title = "A  Activity\u2013foraging latency") + -->
-<!--   theme_minimal(base_size = 11) + -->
-<!--   theme(legend.position = "none") -->
-
-<!-- p_feed_ann <- ggplot(df, aes(ann_first, feed_time)) + -->
-<!--   geom_point(size = 2, alpha = .8) + -->
-<!--   geom_smooth(method = MASS::glm.nb, -->
-<!--               se = TRUE, -->
-<!--               fullrange = FALSE, -->
-<!--               method.args = list(init.theta = 1)) + -->
-<!--   coord_cartesian(xlim = c(0, 12)) + -->
-<!--   labs(x = "ANN in Nudging Period 1 (nudges / minute active)", -->
-<!--        y = "Latency to feed (s)", -->
-<!--        title = "B  Period 1 ANN\u2013foraging latency") + -->
-<!--   theme_minimal(base_size = 11) + -->
-<!--   theme(legend.position = "none") -->
-
-
-<!-- figure_foraging <- p_feed_act / p_feed_ann -->
-
-<!-- # ggsave("figures/foraging_revised.png", -->
-<!-- #        figure_foraging, width = 5, height = 8, dpi = 600) -->
-<!-- # ggsave("figures/svg/foraging_revised.svg", -->
-<!-- #        figure_foraging, width = 5, height = 8, device = "svg") -->
-<!-- figure_foraging -->
-<!-- ``` -->
-
-
-
-
+# Models
+
+The following sections report full results for all models described in the methods section of the paper. P-values for interaction terms and covariates are from likelihood ratio tests; p-values for main effects retained due to model hierarchy are from z-tests (glmmTMB models) or t-tests (lmer models). BH-adjusted p-values are reported in summary tables at the end of each model set; raw p-values are used in the narrative.
+
+
+```{r}
+#| label: setup-model-fns
+#| include: false
+
+# Create functions to generate tables of model summaries
+
+get_lrt <- function(model) {
+  tryCatch({
+    d <- dropterm(model, test = "Chisq")
+    lrt_df <- data.frame(
+      term_short = rownames(d),
+      LRT = round(d[, "LRT"], 3),
+      p_lrt = d[, "Pr(Chi)"],
+      row.names = NULL
+    ) |>
+      filter(term_short != "<none>", !is.na(LRT))
+
+    tidy_terms <- tidy(model, effects = "fixed") |>
+      select(term) |>
+      mutate(term_short = term)
+
+    lrt_df$term <- sapply(lrt_df$term_short, function(short) {
+      parts <- strsplit(short, ":")[[1]]
+      matches <- tidy_terms$term[sapply(tidy_terms$term, function(t) {
+        all(sapply(parts, function(p) grepl(p, t, fixed = TRUE)))
+      })]
+      if (length(matches) == 1) matches else NA_character_
+    })
+
+    lrt_df |>
+      select(term, LRT, p_lrt) |>
+      filter(!is.na(term))
+  }, error = function(e) data.frame(term = character(0), LRT = numeric(0), p_lrt = numeric(0)))
+}
+
+fmt_p_lrt <- function(p, lrt) {
+  lrt_fmt <- if_else(is.na(lrt), NA_character_, as.character(round(lrt, 3)))
+  case_when(
+    is.na(p) ~ "—",
+    !is.na(lrt_fmt) ~ paste0(p, " (", lrt_fmt, ")"),
+    TRUE ~ p
+  )
+}
+
+format_glmmtmb <- function(model, title = "", formula_str = NULL, comments = NULL, coef_rename = NULL) {
+
+  lrt <- get_lrt(model)
+
+  est <- tidy(model, effects = "fixed") |>
+    filter(component == "cond") |>
+    left_join(lrt, by = "term") |>
+    mutate(
+      IRR = round(exp(estimate), 3),
+      IRR = if_else(term == "(Intercept)", NA_real_, IRR),
+      cell = paste0(round(estimate, 3), " (", round(std.error, 3), ")"),
+      p.value = fmt_p_lrt(
+        if_else(!is.na(p_lrt), fmt_p(p_lrt), fmt_p(p.value)), LRT
+      ),
+      term = if (!is.null(coef_rename)) {
+                  case_match(term, !!!coef_rename, .default = term)
+                } else term
+    ) |>
+    select(term, cell, IRR, p.value)
+
+  disp <- round(summary(model)$sigma, 3)
+
+  re <- tidy(model, effects = "ran_pars") |>
+    filter(component == "cond") |>
+    mutate(
+      term = paste0("SD (", group, ")"),
+      cell = as.character(round(estimate, 3)),
+      IRR = NA_real_,
+      p.value = NA_character_
+    ) |>
+    select(term, cell, IRR, p.value) |>
+    mutate(IRR = as.character(IRR))
+
+  tbl <- bind_rows(
+    est |> mutate(IRR = as.character(IRR)),
+    re
+  ) |>
+    mutate(
+      IRR = if_else(is.na(IRR) | IRR == "NA", "—", IRR),
+      p.value = if_else(is.na(p.value), "—", p.value)
+    )
+
+  notes <- c(
+    paste0("Dispersion: ", disp),
+    "IRR = incidence rate ratio. SD = random effect standard deviation. The LRT p-value and statistic are reported where applicable."
+  )
+  if (!is.null(formula_str)) notes <- c(paste0("Model: ", formula_str), notes)
+  if (!is.null(comments))    notes <- c(notes, comments)
+
+  tbl |>
+    kable(
+      col.names = c("Term", "Estimate (SE)", "IRR", "p-value (LRT)"),
+      caption = title,
+      booktabs = TRUE,
+      escape = FALSE,
+    longtable = TRUE
+    ) |>
+    kable_styling(
+      latex_options = c("striped", "repeat_header"),
+      full_width = FALSE
+    ) |>
+    footnote(
+      number = notes,
+      escape = FALSE,
+      threeparttable = TRUE
+    )
+}
+
+format_lmer <- function(model, title = "", formula_str = NULL, comments = NULL, coef_rename = NULL) {
+
+  lrt <- get_lrt(model)
+
+  est <- tidy(model, effects = "fixed") |>
+    left_join(lrt, by = "term") |>
+    mutate(
+      cell = paste0(round(estimate, 3), " (", round(std.error, 3), ")"),
+      p.value = fmt_p_lrt(
+        if_else(!is.na(p_lrt), fmt_p(p_lrt), fmt_p(p.value)), LRT
+      ),
+      term = if (!is.null(coef_rename)) {
+                  case_match(term, !!!coef_rename, .default = term)
+                } else term
+    ) |>
+    select(term, cell, p.value)
+
+  re <- tidy(model, effects = "ran_pars") |>
+    mutate(
+      term = paste0("SD (", group, ")"),
+      cell = as.character(round(estimate, 3)),
+      p.value = NA_character_
+    ) |>
+    select(term, cell, p.value)
+
+  sigma_val <- round(sigma(model), 3)
+
+  notes <- c(
+    paste0("Residual SD: ", sigma_val),
+    "SD = random effect standard deviation. The LRT p-value and statistic are reported where applicable."
+  )
+  if (!is.null(formula_str)) notes <- c(paste0("Model: ", formula_str), notes)
+  if (!is.null(comments))    notes <- c(notes, comments)
+
+  bind_rows(est, re) |>
+    mutate(p.value = if_else(is.na(p.value), "—", p.value)) |>
+    kable(
+      col.names = c("Term", "Estimate (SE)", "p-value (LRT)"),
+      caption   = title,
+      booktabs  = TRUE,
+    longtable = TRUE
+    ) |>
+    kable_styling(
+      latex_options = c("striped", "repeat_header", "scale_down"),
+      full_width    = FALSE
+    ) |>
+    footnote(
+      number         = notes,
+      escape         = FALSE,
+      threeparttable = TRUE
+    )
+}
+```
+
+
+## Inherent Characteristics Models
+
+Inherent characteristics models examined whether sex, nudging period, body length, and their interactions predicted each behavioral outcome. All models were fit on the pooled dataset ($n = 76$ observations from 38 fish across two nudging periods) using the random effect structures selected above. Fixed effects include sex, period, mean-centered body length, and a sex × period interaction term.
+
+```{r}
+#| label: prep-inherent-length-center
+#| include: false
+
+# Store original lengths for backtransforming, and center `length` around 0 for better interpretation
+length_means_original <- tapply(df_long$length, df_long$sex, mean)
+df_long$length <- as.numeric(scale(df_long$length, scale = FALSE))
+```
+
+### Activity - Inherent Characteristics
+
+```{r}
+#| label: fit-inherent-activity
+#| include: false
+
+activity_I <- glmmTMB(activity ~ sex + period + length + sex * period +
+                        (1 | fish_id) + (1 | group_id), family = nbinom2, 
+                      ziformula = ~1, data = df_long)
+```
+
+```{r}
+#| label: tbl-inherent-activity
+#| tbl-cap: "Activity (s): Inherent characteristics model."
+
+format_glmmtmb(
+  activity_I,
+  title = "Time Active (s) [Inherent Characteristics Model]",
+  formula_str = "activity $\\\\sim$ sex + period + length + sex × period + (1 | fish\\\\_id) + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "sexMale" ~ "Sex (Male)",
+    "periodPeriod 2" ~ "Period 2",
+    "length" ~ "Body Length",
+    "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2"
+  )
+)
+```
+
+Period was the only significant predictor of activity (p < 0.001), with activity approximately 2.4-fold higher in Period 2. Sex, body length, and the sex × period interaction were all non-significant (all p > 0.42), suggesting the difference between nudging periods was consistent across sexes and body sizes. Note that the fish-level random effect variance estimate was extremely small, suggesting pair-level clustering accounted for the majority of random variation.
+
+
+
+### ANN - Inherent Characteristics
+
+```{r}
+#| label: fit-inherent-ann
+#| include: false
+
+ann_I <- glmmTMB(ann ~ sex + period + length + sex * period + (1 | fish_id),
+                 family = tweedie(link = "log"), data = df_long)
+```
+
+
+```{r}
+#| label: tbl-inherent-ann
+#| tbl-cap: "ANN (nudges/min active): Inherent characteristics model"
+
+format_glmmtmb(
+  ann_I,
+  title = "ANN (nudges/min active) [Inherent Characteristics Model]",
+  formula_str = "ann $\\\\sim$ sex + period + length + sex × period + (1 | fish\\\\_id), family = Tweedie",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "sexMale" ~ "Sex (Male)",
+    "periodPeriod 2" ~ "Period 2",
+    "length" ~ "Body Length",
+    "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2"
+  )
+)
+```
+
+Both period (p = <0.001) and the sex × period interaction (LRT = 10.736, p = 0.001) were significant predictors of ANN, with body length and sex both non-significant (both p > 0.28). The positive period effect (IRR ≈ 4.82) and negative sex × period interaction (IRR ≈ 0.19) together indicate that ANN increased substantially between periods for females, but these effects largely cancelled out for males, suggesting ANN remained relatively stable across periods for males.
+
+### Respiration Rate - Inherent Characteristics
+
+```{r}
+#| label: fit-inherent-resp
+#| include: false
+
+resp_I <- lmer(resp ~ sex + period + length + sex * period +
+                 (1 | fish_id) + (1 | group_id),
+               REML = FALSE, na.action = na.omit, data = df_long)
+```
+
+
+```{r}
+#| label: tbl-inherent-resp
+#| tbl-cap: "Resp Rate (beats/10 sec): Inherent characteristics model"
+
+format_lmer(
+  resp_I,
+  title = "Resp. Rate (beats/10 sec) [Inherent Characteristics Model]",
+  formula_str = "resp $\\\\sim$ sex + period + length + sex × period + (1 | fish\\\\_id) + (1 | group\\\\_id), family = gaussian",
+#  comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "sexMale" ~ "Sex (Male)",
+    "periodPeriod 2" ~ "Period 2",
+    "length" ~ "Body Length",
+    "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2"
+  )
+)
+```
+
+Respiration rate declined significantly between periods (p < 0.001), decreasing by approximately 18 beats/10 seconds on average. Sex, body length, and the sex × period interaction were all non-significant (all p > 0.39), indicating the period effect was consistent across sexes and body sizes. Note that a singular fit was observed for this model, with the fish-level random effect variance estimated at zero, suggesting pair-level clustering accounted for the majority of random variation.
+
+### Wall Surfing - Inherent Characteristics
+
+```{r}
+#| label: fit-inherent-surfing
+#| include: false
+
+surfing_I <- glmmTMB(surfing ~ sex + period + length + sex * period +
+                       (1 | fish_id) + (1 | group_id),
+                     family = nbinom2, ziformula = ~1, data = df_long)
+```
+
+
+```{r}
+#| label: tbl-inherent-surfing
+#| tbl-cap: "Wall Surfing (s): Inherent characteristics model"
+
+format_glmmtmb(
+  surfing_I,
+  title = "Wall Surfing (s) [Inherent Characteristics Model]",
+  formula_str = "surfing $\\\\sim$ sex + period + length + sex * period + (1 | fish\\\\_id) + (1 | group\\\\_id), family = negative binomial",
+#  comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "sexMale" ~ "Sex (Male)",
+    "periodPeriod 2" ~ "Period 2",
+    "length" ~ "Body Length",
+    "sexMale:periodPeriod 2" ~ "Sex (Male) × Period 2"
+  )
+)
+```
+
+Period was a significant predictor of wall surfing (p = 0.016), with wall surfing approximately doubling between periods (IRR ≈ 2.07). Sex, body length, and the sex × period interaction were all non-significant (p > 0.21). As with the activity and respiration rate models, the fish-level random effect variance was essentially zero, with pair-level clustering accounting for the majority of random variation.
+
+### Summary Table - Inherent Characteristics
+
+```{r}
+#| label: tbl-inherent-predicted
+#| tbl-cap: "Model-predicted values from inherent characteristics models at mean body length, excluding random effects."
+
+length_by_sex <- tapply(df_long$length, df_long$sex, mean)
+
+inherent_tbl <- expand.grid(
+  sex = c("Female", "Male"),
+  period = c("Period 1", "Period 2"),
+  fish_id = NA,
+  group_id = NA
+)
+inherent_tbl$length <- length_by_sex[inherent_tbl$sex]
+
+inherent_tbl$activity <- round(predict(activity_I, newdata = inherent_tbl, type = "response", re.form = NA), 3)
+inherent_tbl$ann <- round(predict(ann_I, newdata = inherent_tbl, type = "response", re.form = NA), 3)
+inherent_tbl$resp <- round(predict(resp_I, newdata = inherent_tbl, type = "response", re.form = NA), 3)
+inherent_tbl$surfing <- round(predict(surfing_I, newdata = inherent_tbl, type = "response", re.form = NA), 3)
+inherent_tbl$length <- round(length_means_original[inherent_tbl$sex], 3)
+inherent_tbl$fish_id <- NULL
+inherent_tbl$group_id <- NULL
+
+inherent_tbl |>
+  kable(
+    col.names = c("Sex", "Period", "Activity (s)",
+                  "ANN", "Resp Rate", "Wall Surfing (s)", "Length (cm)"),
+    booktabs = TRUE,
+    digits = 3,
+    longtable = TRUE
+  ) |>
+  kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width = FALSE
+  ) |>
+  footnote(
+    number = "Predicted values computed at mean body length for each sex, with random effects set to zero.",
+    escape = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+
+### Multiple Comparisons Corrections - Inherent Characteristics
+
+The Benjamini-Hochberg (BH) correction was applied within each inherent characteristics model as the same set of predictors (sex, period, body length, and their interaction) was tested across all outcome variables. Given the small number of predictors per model (4), corrected p-values are reported in the tables below for transparency but raw p-values are used for interpretation in the narrative, as multiple comparisons correction over a small family of tests can be overly conservative.
+
+```{r}
+#| label: tbl-inherent-bh
+#| tbl-cap: "Inherent characteristics model p-values (raw and BH-adjusted within model)."
+
+inherent_models <- list(
+  Activity = activity_I,
+  ANN = ann_I,
+  `Resp. Rate` = resp_I,
+  `Wall Surfing` = surfing_I
+)
+
+fixed_terms <- c("periodPeriod 2",
+                 "sexMale",
+                 "sexMale:periodPeriod 2",
+                 "length")
+
+term_labels <- c("Period 2",
+                  "Sex (Male)",
+                  "Sex × Period 2",
+                  "Length")
+
+get_p <- function(mod, term_pat) {
+  # First try drop1 for terms it can test
+  d <- tryCatch(
+    drop1(mod, test = "Chisq"),
+    error = function(e) NULL
+  )
+
+  if (!is.null(d) && term_pat %in% rownames(d)) {
+    p <- d[rownames(d) == term_pat, "Pr(Chi)"]
+    if (length(p) > 0 && !is.na(p)) return(p)
+  }
+
+  # Fall back to summary z/t-tests for main effects blocked by hierarchy
+  s <- tidy(mod, effects = "fixed")
+  p <- s |> filter(term == term_pat) |> pull(p.value)
+  if (length(p) == 0) NA_real_ else p
+}
+
+raw_p <- map_dfr(
+  inherent_models,
+  function(m) setNames(vapply(fixed_terms, get_p, numeric(1), mod = m),
+                       fixed_terms),
+  .id = "Behaviour"
+)
+
+adj_mat <- t(apply(raw_p[fixed_terms], 1,
+                   \(p) p.adjust(p, method = "BH")))
+colnames(adj_mat) <- paste0(fixed_terms, "_adj")
+
+result_tbl <- bind_cols(raw_p, as.data.frame(adj_mat))
+interleaved <- c(rbind(fixed_terms, paste0(fixed_terms, "_adj")))
+result_tbl <- result_tbl[, c("Behaviour", interleaved)]
+
+# Format p-values as scientific notation
+result_tbl <- result_tbl |>
+  mutate(across(-Behaviour, ~fmt_p(.)))
+
+# Interleave "Term" and "Term (adj)"
+col_labels <- c(rbind(rep("Raw", 4), rep("Adj", 4)))
+
+kable(result_tbl,
+      col.names = c("Behaviour", col_labels),
+      booktabs = TRUE,
+    longtable = TRUE) |>
+  kableExtra::kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width = FALSE
+  ) |>
+  kableExtra::add_header_above(
+    c(" " = 1, "Period 2" = 2, "Sex" = 2, "Sex × Period" = 2, "Length" = 2),
+    escape = FALSE
+  ) |>
+  footnote(
+    number = "Inherent characteristics model p-values (raw and BH-adjusted within model). Adjusted p-values computed using the Benjamini-Hochberg method.",
+    escape = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+
+## Concurrent Behavior Models
+
+Concurrent behavior models examined associations among behavioral variables within nudging periods, with each behavioral outcome modeled as a function of period and the remaining three behavioral variables. All models were fit on the pooled dataset using the random effect structures selected above.
+
+### Activity - Concurrent Behavior
+
+```{r}
+#| label: fit-concurrent-activity
+#| include: false
+
+activity_B <- glmmTMB(activity ~ period + ann + resp + surfing + (1 | fish_id) + (1 | group_id), family = nbinom2, ziformula = ~1, data = df_long)
+```
+
+
+```{r}
+#| label: tbl-concurrent-activity
+#| tbl-cap: "Activity (s): Concurrent behavior model."
+
+format_glmmtmb(
+  activity_B,
+  title = "Time Active (s) [Concurrent Behavior Model]",
+  formula_str = "activity $\\\\sim$ period + ann + resp + surfing + (1 | fish\\\\_id) + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "periodPeriod 2" ~ "Period 2",
+    "ann" ~ "ANN (nudges/min active)",
+    "resp" ~ "Resp. Rate (beats/10 sec)",
+    "surfing" ~ "Wall Surfing (s)"
+  )
+)
+```
+
+Wall surfing was the only significant predictor of activity (LRT = 13.48, p < 0.001), with period, ANN, and respiration rate all non-significant. Moderate collinearity was detected for period (VIF between 5 and 10), though below the threshold warranting concern.
+
+### ANN - Concurrent Behavior
+
+```{r}
+#| label: fit-concurrent-ann
+#| include: false
+
+ann_B <- glmmTMB(ann ~ activity + resp + surfing + period + (1 | fish_id), 
+                 family = tweedie(link = "log"), data = df_long)
+```
+
+
+```{r}
+#| label: tbl-concurrent-ann
+#| tbl-cap: "ANN (nudges/min active): Concurrent behavior model."
+
+format_glmmtmb(
+  ann_B,
+  title = "ANN (nudges/min active) [Concurrent Behavior Model]",
+  formula_str = "ann $\\\\sim$ activity + resp + surfing + period + (1 | fish\\\\_id), 
+  family = tweedie",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "periodPeriod 2" ~ "Period 2",
+    "activity" ~ "Time Active (s)",
+    "resp" ~ "Resp. Rate (beats/10 sec)",
+    "surfing" ~ "Wall Surfing (s)"
+  )
+)
+```
+
+No predictors were significant in the ANN concurrent behavior model, with period, activity, respiration rate, and wall surfing all non-significant (all p > 0.12). Some numerical warnings were produced during model fitting, so results from this model should be interpreted with appropriate caution.
+
+
+### Respiration Rate - Concurrent Behavior
+
+```{r}
+#| label: fit-concurrent-resp
+#| include: false
+
+resp_B <- lmer(resp ~ period + activity + ann + surfing + 
+                 (1 | fish_id) + (1 | group_id), 
+               REML = FALSE, na.action = na.omit, data = df_long)
+```
+
+
+```{r}
+#| label: tbl-concurrent-resp
+#| tbl-cap: "Respiration rate (beats/10 sec): Concurrent behavior model."
+
+format_lmer(
+  resp_B,
+  title = "Resp. Rate (beats/10 sec) [Concurrent Behavior Model]",
+  formula_str = "resp $\\\\sim$ period + activity + ann + surfing + (1 | fish\\\\_id) + (1 | group\\\\_id), family = gaussian",
+#  comments = "Fish-level random effect variance was essentially zero; pair-level clustering accounted for most random variation.",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "periodPeriod 2" ~ "Period 2",
+    "activity" ~ "Time Active (s)",
+    "ann" ~ "ANN (nudges/min active)",
+    "surfing" ~ "Wall Surfing (s)"
+  )
+)
+```
+
+Period and wall surfing were both significant predictors of respiration rate (LRT = 63.02, p < 0.001 and LRT = 5.95, p = 0.015 respectively), with respiration rate declining substantially between periods and increasing slightly with wall surfing. Activity and ANN were non-significant. The fish-level random effect variance was zero, consistent with the pattern seen in other models.
+
+
+### Wall Surfing - Concurrent Behavior
+
+```{r}
+#| label: fit-concurrent-surfing
+#| include: false
+
+surfing_B <- glmmTMB(surfing ~ period + activity + ann + resp + 
+                       (1 | fish_id) + (1 | group_id), 
+                     family = nbinom2, ziformula = ~1, data = df_long)
+```
+
+
+```{r}
+#| label: tbl-concurrent-surfing
+#| tbl-cap: "Wall surfing (s): Concurrent behavior model."
+
+format_glmmtmb(
+  surfing_B,
+  title = "Wall Surfing (s) [Concurrent Behavior Model]",
+  formula_str = "surfing $\\\\sim$ period + activity + ann + resp + (1 | fish\\\\_id) + (1 | group\\\\_id), family = negative binomial",
+#  comments = "Both fish-level and group-level random effect variances were essentially zero, suggesting wall surfing variation in this model was largely explained by the fixed effects alone.",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "periodPeriod 2" ~ "Period 2",
+    "activity" ~ "Time Active (s)",
+    "ann" ~ "ANN (nudges/min active)",
+    "resp" ~ "Resp. Rate (beats/10 sec)"
+  )
+)
+```
+
+Period and activity were significant predictors of wall surfing (LRT = 6.10, p = 0.014 and LRT = 11.74, p < 0.001 respectively), with wall surfing increasing between periods and positively associated with activity. Respiration rate was marginally non-significant (LRT = 3.73, p = 0.053) and ANN was non-significant. Notably, both random effect variances were essentially zero in this model, suggesting wall surfing variation was largely explained by the fixed effects alone.
+
+
+### Summary Table - Concurrent Behavior
+```{r}
+#| label: tbl-concurrent-predicted
+#| tbl-cap: "Predicted values from concurrent behavior models at sex- and period-specific mean predictor values."
+
+concurrent_tbl <- df_long |>
+  group_by(sex, period) |>
+  summarise(
+    activity = mean(activity, na.rm = TRUE),
+    ann = mean(ann,      na.rm = TRUE),
+    resp = mean(resp,     na.rm = TRUE),
+    surfing = mean(surfing,  na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(fish_id = NA, group_id = NA)
+
+concurrent_tbl$activity_pred <- round(predict(activity_B, newdata = concurrent_tbl, type = "response", re.form = NA), 3)
+concurrent_tbl$ann_pred      <- round(predict(ann_B,      newdata = concurrent_tbl, type = "response", re.form = NA), 3)
+concurrent_tbl$resp_pred     <- round(predict(resp_B,     newdata = concurrent_tbl, type = "response", re.form = NA), 3)
+concurrent_tbl$surfing_pred  <- round(predict(surfing_B,  newdata = concurrent_tbl, type = "response", re.form = NA), 3)
+
+concurrent_tbl |>
+  select(sex, period, activity_pred, ann_pred, resp_pred, surfing_pred) |>
+  kable(
+    col.names = c("Sex", "Period", "Activity(s)", "ANN (nudges/min)",
+                  "Resp Rate (beats/10 sec)", "Wall Surfing (s)"),
+    booktabs = TRUE,
+    digits = 3,
+    longtable = TRUE
+  ) |>
+  kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width = FALSE
+  ) |>
+  footnote(
+    number = "Predicted values computed at sex- and period-specific mean predictor values, with random effects set to zero.",
+    escape = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+### Multiple Comparisons Correction - Concurrent Behavior
+A multiple comparisons correction was not applied to the concurrent behavior models as the predictor sets differ across outcome variables.
+
+## Carryover Models
+Carryover models examined whether behaviors in the first nudging period predicted behaviors in the second period. All models were fit on the individual level (wide) dataset ($n = 38$), and include pair identity as a random effect.
+
+### Activity - Carryover
+
+```{r}
+#| label: fit-carryover-activity
+#| include: false
+
+activity_L <- glmmTMB(activity_second ~ activity_first + ann_first +
+                      resp_first + surfing_first + (1 | group_id),
+                      family = nbinom2, ziformula = ~1, data = df)
+```
+
+
+```{r}
+#| label: tbl-carryover-activity
+#| tbl-cap: "Period 2 activity (s): Carry-over model."
+
+format_glmmtmb(
+  activity_L,
+  title = "Time Active in Period 2 (s) [Carryover Model]",
+  formula_str = "activity\\\\_second $\\\\sim$ activity\\\\_first + ann\\\\_first + resp\\\\_first + surfing\\\\_first + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "activity_first" ~ "P1 Activity (s)",
+    "ann_first" ~ "P1 ANN (nudges/min active)",
+    "resp_first" ~ "P1 Resp. Rate (beats/10 sec)",
+    "surfing_first" ~ "P1 Wall Surfing (s)"
+  )
+)
+```
+
+Model fit for the activity carryover model was poor, reflected by an extremely large dispersion parameter ($5.7 \times 10^8$), likely due to the 300-second activity ceiling imposed by monitoring for a set time period in Period 2, creating a distributional shape the negative binomial could not accommodate. Results from this model should be interpreted with caution. No Period 1 predictors were significant.
+
+
+### ANN - Carryover
+
+```{r}
+#| label: fit-carryover-ann
+#| include: false
+
+ann_L <- glmmTMB(ann_second ~ activity_first + ann_first + resp_first +
+                   surfing_first + (1 | group_id), 
+                 family = tweedie(link = "log"), data = df)
+```
+
+
+```{r}
+#| label: tbl-carryover-ann
+#| tbl-cap: "Period 2 ANN (nudges/min active): Carryover model."
+
+format_glmmtmb(
+  ann_L,
+  title = "ANN in Period 2 (nudges/min active) [Carryover Model]",
+  formula_str = "ann\\\\_second $\\\\sim$ activity\\\\_first + ann\\\\_first + resp\\\\_first + surfing\\\\_first + (1 | group\\\\_id), family = tweedie",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "activity_first" ~ "P1 Activity (s)",
+    "ann_first" ~ "P1 ANN (nudges/min active)",
+    "resp_first" ~ "P1 Resp. Rate (beats/10 sec)",
+    "surfing_first" ~ "P1 Wall Surfing (s)"
+  )
+)
+```
+
+No nudging period 1 predictors were significant (all p > 0.11), suggesting nudging period 2 ANN was not meaningfully predicted by any behavioral measures from the first nudging period.
+
+### Respiration Rate - Carryover
+
+```{r}
+#| label: fit-carryover-resp
+#| include: false
+
+resp_L <- lmer(resp_second ~ activity_first + ann_first + resp_first + 
+                 surfing_first + (1 | group_id), REML = FALSE, 
+               na.action = na.omit, data = df_complete_resp)
+```
+
+
+```{r}
+#| label: tbl-carryover-resp
+#| tbl-cap: "Period 2 respiration rate (beats/10 sec): Carry-over model."
+
+format_lmer(
+  resp_L,
+  title = "Resp. Rate in Period 2 (beats/10 sec) [Carryover Model]",
+  formula_str = "resp\\\\_second $\\\\sim$ activity\\\\_first + ann\\\\_first + resp\\\\_first + surfing\\\\_first + (1 | group\\\\_id), family = gaussian",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "activity_first" ~ "P1 Activity (s)",
+    "ann_first" ~ "P1 ANN (nudges/min active)",
+    "resp_first" ~ "P1 Resp. Rate (beats/10 sec)",
+    "surfing_first" ~ "P1 Wall Surfing (s)"
+  )
+)
+```
+
+Period 1 wall surfing showed a marginal positive association with Period 2 respiration rate (LRT = 3.74, p = 0.053), while activity, ANN, and Period 1 respiration rate were all non-significant (all p > 0.21). This model was fit on 35 individuals due to missing nudging period 2 respiration data in 3 fish.
+
+
+### Wall Surfing - Carryover
+
+```{r}
+#| label: fit-carryover-surfing
+#| include: false
+
+surfing_L <- glmmTMB(surfing_second ~ activity_first + ann_first + resp_first +
+                       surfing_first + (1 | group_id), 
+                     data = df, family = nbinom2, ziformula = ~1)
+```
+
+
+```{r}
+#| label: tbl-carryover-surfing
+#| tbl-cap: "Period 2 wall surfing (s): Carry-over model."
+
+format_glmmtmb(
+  surfing_L,
+  title = "Wall Surfing in Period 2 (s) [Carryover Model]",
+  formula_str = "surfing\\\\_second $\\\\sim$ activity\\\\_first + ann\\\\_first + resp\\\\_first + surfing\\\\_first + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)" ~ "Intercept",
+    "activity_first" ~ "P1 Activity (s)",
+    "ann_first" ~ "P1 ANN (nudges/min active)",
+    "resp_first" ~ "P1 Resp. Rate (beats/10 sec)",
+    "surfing_first" ~ "P1 Wall Surfing (s)"
+  )
+)
+```
+
+Period 1 ANN and Period 1 respiration rate were both significant negative predictors of Period 2 wall surfing (LRT = 7.11, p = 0.008 and LRT = 16.35, p < 0.001 respectively), suggesting that fish with higher nudging rates while active and higher respiration rates in Period 1 showed less wall surfing in Period 2. Period 1 activity and Period 1 wall surfing were both non-significant (p > 0.19).
+
+
+### Carryover Summary Table
+```{r}
+#| label: tbl-carryover-predicted
+#| tbl-cap: "Predicted Period 2 behavioral values at sex-specific mean Period 1 predictor values."
+
+carryover_tbl <- df |>
+  group_by(sex) |>
+  summarise(
+    activity_first = mean(activity_first, na.rm = TRUE),
+    ann_first = mean(ann_first,      na.rm = TRUE),
+    resp_first = mean(resp_first,     na.rm = TRUE),
+    surfing_first = mean(surfing_first,  na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(group_id = NA)
+
+carryover_tbl$activity_pred <- round(predict(activity_L, newdata = carryover_tbl, type = "response", re.form = NA), 3)
+carryover_tbl$ann_pred      <- round(predict(ann_L,      newdata = carryover_tbl, type = "response", re.form = NA), 3)
+carryover_tbl$resp_pred     <- round(predict(resp_L,     newdata = carryover_tbl, type = "response", re.form = NA), 3)
+carryover_tbl$surfing_pred  <- round(predict(surfing_L,  newdata = carryover_tbl, type = "response", re.form = NA), 3)
+
+carryover_tbl |>
+  select(sex, activity_pred, ann_pred, resp_pred, surfing_pred) |>
+  kable(
+    col.names = c("Sex", "Activity(s)", "ANN (nudges/min)",
+                  "Resp Rate (beats/10 sec)", "Wall Surfing (s)"),
+    booktabs = TRUE,
+    digits = 3,
+    longtable = TRUE
+  ) |>
+  kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width = FALSE
+  ) |>
+  footnote(
+    number = "Predicted values computed at sex-specific mean Period 1 predictor values, with random effects set to zero.",
+    escape = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+### Carryover Multiple Comparisons
+
+BH correction was applied within each carryover model as the same set of Period 1 predictors (activity, ANN, respiration rate, and wall surfing) was tested across all Period 2 outcome variables. As with the inherent characteristics models, corrected p-values are reported in the tables below for transparency but raw p-values are used for interpretation in the narrative given the small family size.
+
+```{r}
+#| label: tbl-carryover-bh
+#| tbl-cap: "Carry-over model p-values (raw and BH-adjusted within model)."
+
+carryover_models <- list(
+  `P2 Activity`     = activity_L,
+  `P2 ANN`          = ann_L,
+  `P2 Resp. Rate`   = resp_L,
+  `P2 Wall Surfing` = surfing_L
+)
+
+fixed_terms_L <- c("activity_first",
+                 "ann_first",
+                 "resp_first",
+                 "surfing_first")
+
+term_labels_L <- c("P1 Activity",
+                  "P1 ANN",
+                  "P1 Resp. Rate",
+                  "P1 Wall Surfing")
+
+raw_p_L <- map_dfr(
+  carryover_models,
+  function(m) setNames(vapply(fixed_terms_L, get_p, numeric(1), mod = m),
+                       fixed_terms_L),
+  .id = "Behaviour"
+)
+
+adj_mat_L <- t(apply(raw_p_L[fixed_terms_L], 1,
+                   \(p) p.adjust(p, method = "BH")))
+colnames(adj_mat_L) <- paste0(fixed_terms_L, "_adj")
+
+result_tbl_L <- bind_cols(raw_p_L, as.data.frame(adj_mat_L))
+interleaved_L <- c(rbind(fixed_terms_L, paste0(fixed_terms_L, "_adj")))
+result_tbl_L <- result_tbl_L[, c("Behaviour", interleaved_L)]
+
+# Format p-values as scientific notation
+result_tbl_L <- result_tbl_L |>
+  mutate(across(-Behaviour, ~fmt_p(.)))
+
+# Interleave "Term" and "Term (adj)"
+col_labels_L <- c(rbind(rep("Raw", 4), rep("Adj", 4)))
+
+kable(result_tbl_L,
+      col.names = c("Behaviour", col_labels_L),
+      booktabs = TRUE,
+    longtable = TRUE) |>
+  kableExtra::kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width    = FALSE
+  ) |>
+  kableExtra::add_header_above(
+    c(" " = 1, "P1 Activity" = 2, "P1 ANN" = 2,
+      "P1 Resp. Rate" = 2, "P1 Wall Surfing" = 2),
+    escape = FALSE
+  ) |> 
+  footnote(
+    number = "Carry-over model p-values (raw and BH-adjusted within model). Adjusted p-values computed using the Benjamini-Hochberg method.",
+    escape = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+
+
+## Foraging Task Models
+### Model Selection
+
+Foraging task models were selected by fitting all possible subsets of a global model including sex, body length, and all behavioral variables from both nudging periods (activity, ANN, respiration rate, and wall surfing) as candidates, then ranking candidate models by AICc. Models were initially computed using complete cases ($n = 35$) and including respiration rate in the second nudging period, however none of the top candidate models ($\Delta$AICc $\leq 2$) included respiration rate in the second nudging period, so the AICc-based evaluation was repeated excluding this variable, but using the full dataset. Final models were selected as the best-supported model from the full dataset analysis.
+
+```{r}
+#| label: prep-foraging-dredge
+#| include: false
+
+load("dredge_results.rda")
+
+# Complete cases models (with resp_second)
+feed_top_set_1   <- get.models(feed_dredged_1,   subset = delta <= 2)
+feed_avg_mod_1   <- model.avg(feed_top_set_1)
+
+freeze_top_set_1 <- get.models(freeze_dredged_1, subset = delta <= 2)
+freeze_avg_mod_1 <- model.avg(freeze_top_set_1)
+
+# Full dataset models (without resp_second)
+feed_top_set_2   <- get.models(feed_dredged_2,   subset = delta <= 2)
+feed_avg_mod_2   <- model.avg(feed_top_set_2)
+
+freeze_top_set_2 <- get.models(freeze_dredged_2, subset = delta <= 2)
+freeze_avg_mod_2 <- model.avg(freeze_top_set_2)
+
+format_dredge <- function(dredge_obj, dataset_label, predictor_labels) {
+  # Get predictor column names from the dredge object
+  term_cols <- attr(dredge_obj, "terms")
+  term_cols <- term_cols[term_cols != "(Intercept)"]
+  
+  as.data.frame(dredge_obj) |>
+    filter(delta <= 2) |>
+    mutate(
+      Dataset = dataset_label,
+      AICc    = round(AICc,  2),
+      delta   = round(delta, 2)
+    ) |>
+    # Convert predictor columns to presence/absence
+    mutate(across(all_of(term_cols), ~if_else(!is.na(.), "+", ""))) |>
+    select(Dataset, all_of(term_cols), df, AICc, delta)
+}
+
+```
+
+```{r}
+#| label: tbl-foraging-dredge-feed
+#| tbl-cap: "Model selection results for foraging time. Models with ΔAICc ≤ 2 shown. Predictor presence indicated by +; blank indicates predictor absent from model."
+
+feed_terms_1 <- attr(feed_dredged_1, "terms")
+feed_terms_1 <- feed_terms_1[
+  !grepl("Int", feed_terms_1, ignore.case = TRUE)
+]
+feed_terms_2 <- attr(feed_dredged_2, "terms")
+feed_terms_2 <- feed_terms_2[
+  !grepl("Int", feed_terms_2, ignore.case = TRUE)
+]
+
+# Extract best AICc for footnote
+best_aicc_1 <- round(min(as.data.frame(feed_dredged_1)$AICc), 2)
+best_aicc_2 <- round(min(as.data.frame(feed_dredged_2)$AICc), 2)
+
+feed_rows_1 <- as.data.frame(feed_dredged_1) |>
+  filter(delta <= 2) |>
+  mutate(
+    Dataset = "Comp",
+    delta   = round(delta, 2),
+    across(all_of(feed_terms_1), ~if_else(!is.na(.), "+", ""))
+  ) |>
+  select(Dataset, all_of(feed_terms_1), delta)
+
+feed_rows_2 <- as.data.frame(feed_dredged_2) |>
+  filter(delta <= 2) |>
+  mutate(
+    Dataset = "Full",
+    delta   = round(delta, 2),
+    across(all_of(feed_terms_2), ~if_else(!is.na(.), "+", ""))
+  ) |>
+  select(Dataset, all_of(feed_terms_2), delta)
+
+clean_names <- function(x) {
+  x |>
+    str_remove_all("cond\\(|\\)") |>
+    str_remove_all("scale\\(|\\)") |>
+    str_replace("sexMale",         "Sex") |>
+    str_replace("length",          "Len") |>
+    str_replace("activity_first",  "Act1") |>
+    str_replace("ann_first",       "ANN1") |>
+    str_replace("resp_first",      "Resp1") |>
+    str_replace("surfing_first",   "Surf1") |>
+    str_replace("activity_second", "Act2") |>
+    str_replace("ann_second",      "ANN2") |>
+    str_replace("resp_second",     "Resp2") |>
+    str_replace("surfing_second",  "Surf2")
+}
+
+names(feed_rows_1) <- c("Data", clean_names(feed_terms_1), "ΔAICc")
+names(feed_rows_2) <- c("Data", clean_names(feed_terms_2), "ΔAICc")
+
+bind_rows(feed_rows_1, feed_rows_2) |>
+  mutate(across(everything(), ~replace_na(as.character(.), ""))) |>
+  kable(
+    booktabs = TRUE,
+    escape   = FALSE,
+    longtable = TRUE
+  ) |>
+  kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width    = FALSE
+  ) |>
+  collapse_rows(columns = 1, valign = "top", latex_hline = "major") |>
+  footnote(
+    number = c(
+      paste0("ΔAICc is compared to the best model AICc: complete cases = ", best_aicc_1,
+             "; full dataset = ", best_aicc_2, "."),
+      "Complete cases dataset includes P2 respiration rate (n = 35). Full dataset excludes P2 respiration rate (n = 38).",
+      "P2 respiration rate was absent from all top models in the complete-case analysis, justifying its exclusion from the full-dataset model."
+    ),
+    escape         = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+
+```{r}
+#| label: tbl-foraging-dredge-freeze
+#| tbl-cap: "Model selection table for freeze time. Top candidate models within $\\\\Delta$AICc $\\\\leq$ 2 shown for complete-case dataset (with P2 respiration rate) and full dataset (respiration rate excluded)."
+
+freeze_terms_1 <- attr(freeze_dredged_1, "terms")
+freeze_terms_1 <- freeze_terms_1[
+  !grepl("Int", freeze_terms_1, ignore.case = TRUE)
+]
+freeze_terms_2 <- attr(freeze_dredged_2, "terms")
+freeze_terms_2 <- freeze_terms_2[
+  !grepl("Int", freeze_terms_2, ignore.case = TRUE)
+]
+
+# Extract best AICc for footnote
+best_aicc_1 <- round(min(as.data.frame(freeze_dredged_1)$AICc), 2)
+best_aicc_2 <- round(min(as.data.frame(freeze_dredged_2)$AICc), 2)
+
+freeze_rows_1 <- as.data.frame(freeze_dredged_1) |>
+  filter(delta <= 2) |>
+  mutate(
+    Dataset = "Comp",
+    delta   = round(delta, 2),
+    across(all_of(freeze_terms_1), ~if_else(!is.na(.), "+", ""))
+  ) |>
+  select(Dataset, all_of(freeze_terms_1), delta)
+
+freeze_rows_2 <- as.data.frame(freeze_dredged_2) |>
+  filter(delta <= 2) |>
+  mutate(
+    Dataset = "Full",
+    delta   = round(delta, 2),
+    across(all_of(freeze_terms_2), ~if_else(!is.na(.), "+", ""))
+  ) |>
+  select(Dataset, all_of(freeze_terms_2), delta)
+
+clean_names <- function(x) {
+  x |>
+    str_remove_all("cond\\(|\\)") |>
+    str_remove_all("scale\\(|\\)") |>
+    str_replace("sexMale",         "Sex") |>
+    str_replace("length",          "Len") |>
+    str_replace("activity_first",  "Act1") |>
+    str_replace("ann_first",       "ANN1") |>
+    str_replace("resp_first",      "Resp1") |>
+    str_replace("surfing_first",   "Surf1") |>
+    str_replace("activity_second", "Act2") |>
+    str_replace("ann_second",      "ANN2") |>
+    str_replace("resp_second",     "Resp2") |>
+    str_replace("surfing_second",  "Surf2")
+}
+
+names(freeze_rows_1) <- c("Data", clean_names(freeze_terms_1), "ΔAICc")
+names(freeze_rows_2) <- c("Data", clean_names(freeze_terms_2), "ΔAICc")
+
+bind_rows(freeze_rows_1, freeze_rows_2) |>
+  mutate(across(everything(), ~replace_na(as.character(.), ""))) |>
+  kable(
+    booktabs = TRUE,
+    escape   = FALSE,
+    longtable = TRUE
+  ) |>
+  kable_styling(
+    latex_options = c("striped", "repeat_header", "scale_down"),
+    full_width    = FALSE
+  ) |>
+  collapse_rows(columns = 1, valign = "top", latex_hline = "major") |>
+  footnote(
+    number = c(
+      paste0("ΔAICc is compared to the best model AICc: complete cases = ", best_aicc_1,
+             "; full dataset = ", best_aicc_2, "."),
+      "Complete cases dataset includes P2 respiration rate (n = 35). Full dataset excludes P2 respiration rate (n = 38).",
+      "P2 respiration rate was absent from all top models in the complete-case analysis, justifying its exclusion from the full-dataset model."
+    ),
+    escape         = FALSE,
+    threeparttable = TRUE
+  )
+```
+
+### Final Models
+
+```{r}
+#| label: fit-foraging-feed
+#| include: false
+
+options(na.action = "na.omit")
+feed_mod_p2 <- glmmTMB(feed_time ~ activity_second + ann_first + (1 | group_id),
+                        data = df, family = nbinom2)
+```
+
+```{r}
+#| label: tbl-foraging-feed
+#| tbl-cap: "Foraging time (s): Foraging task model."
+
+format_glmmtmb(
+  feed_mod_p2,
+  title       = "Foraging Time (s) [Foraging Task Model]",
+  formula_str = "feed\\\\_time $\\\\sim$ activity\\\\_second + ann\\\\_first + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)"    ~ "Intercept",
+    "activity_second" ~ "P2 Activity (s)",
+    "ann_first"       ~ "P1 ANN (nudges/min active)"
+  )
+)
+```
+
+ANN in the first period had a significant negative association with foraging time  (IRR = 0.968, p = 0.024, LRT = 5.085). Activity in the second period was also a significant negative predictor of foraging time (IRR = 0.995, p = 0.001, LRT = 10.507). 
+
+
+```{r}
+#| label: fit-foraging-freeze
+#| include: false
+
+freeze_mod_p2 <- glmmTMB(freeze_time ~ activity_first + (1 | group_id),
+                          data = df, family = nbinom2)
+```
+
+
+```{r}
+#| label: tbl-foraging-freeze
+#| tbl-cap: "Freeze time (s): Foraging task model."
+
+format_glmmtmb(
+  freeze_mod_p2,
+  title       = "Freeze Time (s) [Foraging Task Model]",
+  formula_str = "freeze\\\\_time $\\\\sim$ activity\\\\_first + (1 | group\\\\_id), family = negative binomial",
+  coef_rename = list(
+    "(Intercept)"   ~ "Intercept",
+    "activity_first" ~ "P1 Activity (s)"
+  )
+)
+```
+
+Activity in the first period, which is the only predictor retained in the most parsimonious model, was not a significant predictor for freeze time (IRR = 0.995, p = 0.054, LRT = 3.71).
