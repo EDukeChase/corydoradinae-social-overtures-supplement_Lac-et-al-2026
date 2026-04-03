@@ -1,0 +1,8 @@
+# Ignore everything
+*
+
+# Except these files
+!ESM_1.qmd
+!ESM_1.pdf
+!ESM_2.R
+!.gitignore
