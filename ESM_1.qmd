@@ -815,11 +815,10 @@ data.frame(
     col.names = c("Female (cm)", "Male (cm)", "Diff (cm)",
                   "t", "df", "p-value", "95% CI"),
     booktabs  = TRUE,
-    row.names = FALSE,
-    longtable = TRUE
+    row.names = FALSE
   ) |>
   kable_styling(
-    latex_options = c("striped", "repeat_header"),
+    latex_options = c("striped", "hold_position"),
     full_width    = FALSE
   ) |>
   footnote(
@@ -869,11 +868,10 @@ data.frame(
 ) |>
   kable(
     col.names = c("Period", "r", "p-value", "VIF (Activity)", "VIF (ANN)"),
-    booktabs = TRUE,
-    longtable = TRUE
+    booktabs = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "repeat_header"),
+    latex_options = c("striped", "hold_position"),
     full_width = FALSE
   ) |>
   footnote(
@@ -945,11 +943,10 @@ data.frame(
 ) |>
   kable(
     col.names = c("Period", "r", "p-value", "VIF (Activity)", "VIF (Wall Surfing)"),
-    booktabs = TRUE,
-    longtable = TRUE
+    booktabs = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "repeat_header"),
+    latex_options = c("striped", "hold_position"),
     full_width = FALSE
   ) |>
   footnote(
@@ -973,11 +970,10 @@ data.frame(
 ) |>
   kable(
     col.names = c("Variable", "Period", "Factor 1", "Factor 2"),
-    booktabs = TRUE,
-    longtable = TRUE
+    booktabs = TRUE
   ) |>
   kable_styling(
-    latex_options = c("striped", "repeat_header"),
+    latex_options = c("striped", "hold_position"),
     full_width = FALSE
   ) |>
   collapse_rows(columns = 2, valign = "top", latex_hline = "major")
